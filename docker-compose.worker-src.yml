@@ -1,0 +1,20 @@
+# Overlay: build ws-worker from a local kit checkout instead of pulling an image.
+# Layer it on top of the base file (COMPOSE_FILE), e.g.:
+#
+#   COMPOSE_FILE=docker-compose.yml:docker-compose.worker-src.yml \
+#   WORKER_SRC=/abs/path/to/kit \
+#   DOCKER_PLATFORM=linux/arm64 \
+#   HARNESS_BUILD=1 npm test
+#
+# Builds whatever branch is checked out at WORKER_SRC — no publish required.
+
+services:
+  worker:
+    build:
+      context: '${WORKER_SRC:?set WORKER_SRC to your kit checkout}'
+      dockerfile: Dockerfile
+      target: ws-worker
+    image: 'openfn/ws-worker:local'
+    # The kit Dockerfile's CMD is `node ./dist/start.js`; pass the Lightning URL
+    # explicitly (the published image is launched via pnpm start:prod).
+    command: ['node', './dist/start.js', '-l', 'ws://web:4000/worker']

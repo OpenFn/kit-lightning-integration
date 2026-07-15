@@ -1,0 +1,17 @@
+# Overlay: build Lightning from a local checkout instead of pulling an image.
+# Layer it on top of the base file (COMPOSE_FILE), e.g.:
+#
+#   COMPOSE_FILE=docker-compose.yml:docker-compose.lightning-src.yml \
+#   LIGHTNING_SRC=/abs/path/to/lightning \
+#   DOCKER_PLATFORM=linux/arm64 \
+#   HARNESS_BUILD=1 npm test
+#
+# Builds whatever branch is checked out at LIGHTNING_SRC — no publish required.
+
+services:
+  web:
+    build:
+      context: '${LIGHTNING_SRC:?set LIGHTNING_SRC to your lightning checkout}'
+      dockerfile: Dockerfile
+    # Override the pulled image ref so `up`/`run` use the freshly built one.
+    image: 'openfn/lightning:local'

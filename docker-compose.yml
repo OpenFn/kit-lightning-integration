@@ -1,0 +1,71 @@
+name: lightning-worker-contract
+
+# A parameterized fork of Lightning's docker-compose.yml. The two image tags are
+# the whole point: flip LIGHTNING_TAG / WORKER_TAG to test any pairing.
+
+services:
+  postgres:
+    image: postgres:15.12-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: lightning
+    tmpfs:
+      # Ephemeral DB — every `up` starts from a clean slate, no volume to reset.
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U postgres -d lightning']
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  web:
+    image: 'openfn/lightning:${LIGHTNING_TAG:-latest}'
+    # Published images ship amd64 only (native on CI, emulated on Apple Silicon).
+    # When building from local source, set DOCKER_PLATFORM=linux/arm64 to build
+    # and run natively. See docker-compose.*-src.yml.
+    platform: '${DOCKER_PLATFORM:-linux/amd64}'
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/lightning
+      DISABLE_DB_SSL: 'true'
+      SECRET_KEY_BASE: '${SECRET_KEY_BASE}'
+      PRIMARY_ENCRYPTION_KEY: '${PRIMARY_ENCRYPTION_KEY}'
+      WORKER_SECRET: '${WORKER_SECRET}'
+      WORKER_RUNS_PRIVATE_KEY: '${WORKER_RUNS_PRIVATE_KEY}'
+      # RTM=false: Lightning must NOT spawn its own worker — we run our own
+      # `worker` service so we control which ws-worker image is under test.
+      RTM: 'false'
+      URL_SCHEME: http
+      URL_HOST: localhost
+      URL_PORT: '4000'
+      PORT: '4000'
+      LISTEN_ADDRESS: 0.0.0.0
+      # ORIGINS maps to Phoenix :check_origin. It must be a valid host list
+      # ("*" raises; unset becomes nil which also raises). The worker sends no
+      # Origin header, so a list only gates browsers — any valid list admits it.
+      ORIGINS: '//localhost:*,//web:*,//127.0.0.1:*'
+    healthcheck:
+      test: ['CMD-SHELL', 'curl -fsS http://localhost:4000/health_check || exit 1']
+      interval: 5s
+      timeout: 3s
+      retries: 40
+      start_period: 20s
+    ports:
+      - '127.0.0.1:4000:4000'
+    volumes:
+      # Shared with the host so provision.exs can drop tmp/manifest.json.
+      - './tmp:/harness'
+
+  worker:
+    image: 'openfn/ws-worker:${WORKER_TAG:-latest}'
+    platform: '${DOCKER_PLATFORM:-linux/amd64}'
+    depends_on:
+      web:
+        condition: service_healthy
+    environment:
+      WORKER_SECRET: '${WORKER_SECRET}'
+      WORKER_LIGHTNING_PUBLIC_KEY: '${WORKER_LIGHTNING_PUBLIC_KEY}'
+    command: ['pnpm', 'start:prod', '-l', 'ws://web:4000/worker']
