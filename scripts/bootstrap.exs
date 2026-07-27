@@ -2,8 +2,8 @@
 #
 # Uses Lightning's own declarative bootstrapper: it creates the users/projects/
 # workflows/triggers from a scenario and returns a machine-readable manifest
-# (ids, api tokens, webhook paths). globalSetup replaces __SCENARIO_B64__ with
-# base64(scenario JSON) before sending it.
+# (ids, api tokens, webhook paths). globalSetup injects the base64-encoded
+# scenario into the placeholder in the code below before sending it.
 #
 # Requires the image to be built with Lightning.Bootstrap AND launched with
 # ALLOW_BOOTSTRAP=true (the env gate). Writes /harness/manifest.json (host mount).

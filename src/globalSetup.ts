@@ -26,7 +26,7 @@ function bootstrap(): void {
   const scenarioPath = resolve(root, 'scenarios', `${SCENARIO}.json`);
   const scenarioB64 = readFileSync(scenarioPath).toString('base64');
 
-  const code = readFileSync(resolve(root, 'scripts', 'bootstrap.exs'), 'utf8').replace(
+  const code = readFileSync(resolve(root, 'scripts', 'bootstrap.exs'), 'utf8').replaceAll(
     '__SCENARIO_B64__',
     scenarioB64,
   );
