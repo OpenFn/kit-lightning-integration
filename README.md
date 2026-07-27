@@ -32,11 +32,24 @@ side is caught. Both repos' CI fire a `repository_dispatch` here on merge.
 
 ## Run it locally
 
+> **Note:** the harness provisions via `Lightning.Bootstrap`, which is not yet in
+> a published `openfn/lightning` image. Until it ships, run against a local
+> Lightning checkout (build from source) — see [Testing a branch](#testing-a-branch).
+> The plain image-based flow below only works once Bootstrap is in an image.
+
 ```bash
 cp .env.example .env        # or: ./bin/gen-secrets.sh   (generates real throwaway keys)
-docker compose pull         # pull the image tags in .env (default: latest)
 npm ci
-npm test                    # globalSetup brings the stack up + provisions
+
+# Recommended today — build Lightning from a local checkout (any branch):
+COMPOSE_FILE=docker-compose.yml:docker-compose.lightning-src.yml \
+LIGHTNING_SRC=/path/to/lightning \
+DOCKER_PLATFORM=linux/arm64 \       # native build on Apple Silicon
+HARNESS_BUILD=1 \
+npm test
+
+# Image-based (once openfn/lightning includes Bootstrap):
+#   docker compose pull && npm test
 ```
 
 Useful env:

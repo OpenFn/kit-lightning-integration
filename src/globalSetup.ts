@@ -1,15 +1,13 @@
 import { execFileSync } from 'node:child_process';
-import { readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
-import { buildWebhookPassthrough } from './fixtures.js';
-import { MANIFEST_PATH, type Manifest } from './manifest.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, '..');
 
 const LIGHTNING_BIN = process.env.LIGHTNING_BIN ?? '/app/bin/lightning';
-const BASE_URL = process.env.HARNESS_BASE_URL ?? 'http://127.0.0.1:4000';
+const SCENARIO = process.env.SCENARIO ?? 'webhook-passthrough';
 
 function compose(args: string[]): void {
   execFileSync('docker', ['compose', ...args], {
@@ -19,40 +17,25 @@ function compose(args: string[]): void {
   });
 }
 
-interface Seed {
-  api_token: string;
-  user_id: string;
-}
+/**
+ * Provision via Lightning's own Lightning.Bootstrap, rpc'd into the live web
+ * node. Reads a declarative scenario, and Bootstrap returns a manifest (ids,
+ * api token, webhook paths) which lands on the ./tmp mount as manifest.json.
+ */
+function bootstrap(): void {
+  const scenarioPath = resolve(root, 'scenarios', `${SCENARIO}.json`);
+  const scenarioB64 = readFileSync(scenarioPath).toString('base64');
 
-/** rpc the minimal seed into the live web node; returns the token + user id. */
-function seed(): Seed {
-  const code = readFileSync(resolve(root, 'scripts', 'seed.exs'), 'utf8');
+  const code = readFileSync(resolve(root, 'scripts', 'bootstrap.exs'), 'utf8').replace(
+    '__SCENARIO_B64__',
+    scenarioB64,
+  );
+
   compose(['exec', '-T', 'web', LIGHTNING_BIN, 'rpc', code]);
 
-  const seedPath = resolve(root, 'tmp', 'seed.json');
-  if (!existsSync(seedPath)) throw new Error('Seed did not produce tmp/seed.json');
-  return JSON.parse(readFileSync(seedPath, 'utf8')) as Seed;
-}
-
-/** Create the workflow via the public provisioning API and write the manifest. */
-async function provision({ api_token, user_id }: Seed): Promise<void> {
-  const { spec, ref } = buildWebhookPassthrough(user_id);
-
-  const res = await fetch(`${BASE_URL}/api/provision`, {
-    method: 'POST',
-    headers: {
-      authorization: `Bearer ${api_token}`,
-      'content-type': 'application/json',
-      accept: 'application/json',
-    },
-    body: JSON.stringify(spec),
-  });
-  if (!res.ok) {
-    throw new Error(`POST /api/provision returned ${res.status}: ${await res.text()}`);
+  if (!existsSync(resolve(root, 'tmp', 'manifest.json'))) {
+    throw new Error('Bootstrap did not produce tmp/manifest.json (is ALLOW_BOOTSTRAP=true and does the image include Lightning.Bootstrap?)');
   }
-
-  const manifest: Manifest = { api_token, workflows: [ref] };
-  writeFileSync(MANIFEST_PATH, JSON.stringify(manifest));
 }
 
 export async function setup(): Promise<void> {
@@ -83,11 +66,8 @@ export async function setup(): Promise<void> {
   console.log('[harness] starting web + worker…');
   compose(['up', '-d', '--wait', 'web', 'worker']);
 
-  console.log('[harness] seeding superuser + token…');
-  const s = seed();
-
-  console.log('[harness] provisioning workflow via /api/provision…');
-  await provision(s);
+  console.log(`[harness] bootstrapping scenario "${SCENARIO}"…`);
+  bootstrap();
 
   console.log('[harness] ready.');
 }

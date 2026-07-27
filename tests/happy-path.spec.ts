@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import { LightningClient } from '../src/client.js';
-import { loadManifest, workflow, type Manifest } from '../src/manifest.js';
+import { apiToken, loadManifest, workflow, type Manifest } from '../src/manifest.js';
 
 /**
  * The end-to-end contract: a webhook payload flows Lightning -> /worker channel
@@ -14,14 +14,14 @@ describe('webhook -> worker -> success', () => {
 
   beforeAll(() => {
     manifest = loadManifest();
-    client = new LightningClient(manifest.api_token);
+    client = new LightningClient(apiToken(manifest));
   });
 
   it('runs a webhook-triggered workflow to completion', async () => {
     const wf = workflow(manifest, 'Webhook Passthrough');
-    expect(wf.webhook_path, 'workflow should have a webhook trigger').toBeTruthy();
+    expect(wf.trigger?.webhook_path, 'workflow should have a webhook trigger').toBeTruthy();
 
-    const { work_order_id } = await client.triggerWebhook(wf.webhook_path!, { x: 1 });
+    const { work_order_id } = await client.triggerWebhook(wf.trigger!.webhook_path!, { x: 1 });
     expect(work_order_id).toBeTruthy();
 
     const state = await client.waitForWorkOrder(work_order_id, { until: ['success'] });

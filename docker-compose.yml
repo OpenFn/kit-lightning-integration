@@ -38,6 +38,10 @@ services:
       # RTM=false: Lightning must NOT spawn its own worker — we run our own
       # `worker` service so we control which ws-worker image is under test.
       RTM: 'false'
+      # Opt into Lightning.Bootstrap (the env gate). The harness provisions via
+      # `bin/lightning rpc Lightning.Bootstrap.create_from_map/1`, which refuses
+      # to run unless this is set.
+      ALLOW_BOOTSTRAP: 'true'
       URL_SCHEME: http
       URL_HOST: localhost
       URL_PORT: '4000'
