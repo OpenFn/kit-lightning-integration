@@ -1,0 +1,67 @@
+name: Test against a Lightning branch
+
+on:
+  workflow_dispatch:
+    inputs:
+      lightning_ref:
+        description: "Lightning branch, tag, or full SHA to test"
+        required: true
+        default: main
+      lightning_repo:
+        description: "Lightning repo (owner/name) — change for a fork"
+        required: false
+        default: OpenFn/lightning
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    env:
+      LIGHTNING: "${{ inputs.lightning_repo || 'OpenFn/lightning' }}#${{ inputs.lightning_ref }}"
+      KEEP_STACK: "1" # leave Lightning up so we can grab its log on failure
+
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Match Lightning's .tool-versions.
+      - uses: erlef/setup-beam@v1
+        with:
+          elixir-version: "1.18.3"
+          otp-version: "27.3.3"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+
+      - run: npm ci
+
+      # Boots Lightning natively (clones $LIGHTNING, mix deps.get, bin/e2e
+      # start, waits for health) and runs the suite against it.
+      - name: Run contract tests (Lightning built from source)
+        run: npm test
+
+      - name: Upload Lightning log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lightning-log-${{ inputs.lightning_ref }}
+          path: tmp/lightning.log
+          if-no-files-found: ignore
+
+      - name: Stop Lightning
+        if: always()
+        run: npm run stack -- down || true

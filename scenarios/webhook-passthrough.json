@@ -1,0 +1,31 @@
+{
+  "users": [
+    {
+      "email": "harness@openfn.org",
+      "first_name": "Harry",
+      "last_name": "Harness",
+      "superuser": true,
+      "api_token": true
+    }
+  ],
+  "projects": [
+    {
+      "name": "contract-tests",
+      "members": [{ "email": "harness@openfn.org", "role": "owner" }],
+      "workflows": [
+        {
+          "name": "Webhook Passthrough",
+          "trigger": { "type": "webhook" },
+          "jobs": [
+            {
+              "name": "Echo",
+              "adaptor": "@openfn/language-common@latest",
+              "body": "fn(state => ({ ...state, data: { ...state.data, echoed: true } }));"
+            }
+          ],
+          "edges": [{ "from": "trigger", "to": "Echo", "condition": "always" }]
+        }
+      ]
+    }
+  ]
+}
