@@ -1,8 +1,8 @@
 /**
  * Harness CLI.
  *
- *   npm run stack -- up [--lightning <spec>]   boot the stack (see source.ts for specs)
- *   npm run stack -- down                      tear it down (containers + volumes)
+ *   bun run stack up [--lightning <spec>]   boot the stack (see source.ts for specs)
+ *   bun run stack down                      tear it down
  *
  * `--lightning` falls back to $LIGHTNING, then OpenFn/lightning@main.
  */
@@ -13,8 +13,8 @@ import { resolveLightningSource } from './source.js';
 import { down, root, up } from './stack.js';
 
 const USAGE = `Usage:
-  npm run stack -- up [--lightning <spec>]
-  npm run stack -- down
+  bun run stack up [--lightning <spec>]
+  bun run stack down
 
 Lightning specs:
   main                        branch/tag/SHA on OpenFn/lightning (default)

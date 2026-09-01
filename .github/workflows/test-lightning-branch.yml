@@ -42,17 +42,20 @@ jobs:
           elixir-version: "1.18.3"
           otp-version: "27.3.3"
 
+      # Node runs Lightning's assets install and the worker under test;
+      # bun runs the harness itself.
       - uses: actions/setup-node@v4
         with:
           node-version: "24"
-          cache: npm
 
-      - run: npm ci
+      - uses: oven-sh/setup-bun@v2
 
-      # Boots Lightning natively (clones $LIGHTNING, mix deps.get, bin/e2e
-      # start, waits for health) and runs the suite against it.
+      - run: bun install
+
+      # Boots Lightning natively (clones $LIGHTNING, mix deps.get,
+      # mix phx.server, waits for health) and runs the suite against it.
       - name: Run contract tests (Lightning built from source)
-        run: npm test
+        run: bun run test
 
       - name: Upload Lightning log
         if: always()
@@ -64,4 +67,4 @@ jobs:
 
       - name: Stop Lightning
         if: always()
-        run: npm run stack -- down || true
+        run: bun run stack down || true

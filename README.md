@@ -12,8 +12,10 @@ and drives them as a black-box integrator (webhooks in, run results out).
 
 ## Prerequisites
 
+- **bun** (runs the harness itself), plus **node** — Lightning's assets and
+  the worker under test run on node, as they do in production.
 - **Elixir/Erlang** matching Lightning's `.tool-versions` (asdf picks it up
-  automatically inside the checkout), plus **node**.
+  automatically inside the checkout).
 - On ARM hosts (Apple Silicon): **Rust**, to build the `rambo` dep from source
   — the same prerequisite Lightning's own `bin/bootstrap` enforces.
 - **Postgres** reachable at `DATABASE_URL` (default
@@ -31,8 +33,8 @@ Lightning's `bin/bootstrap`), runs `mix phx.server` detached, and waits until
 it's healthy:
 
 ```bash
-npm ci
-npm run stack -- up --lightning main
+bun install
+bun run stack up --lightning main
 ```
 
 `--lightning` (or the `LIGHTNING` env var) accepts:
@@ -48,7 +50,7 @@ Lightning comes up at <http://localhost:4003> (its log streams to
 `tmp/lightning.log`). Stop it with:
 
 ```bash
-npm run stack -- down
+bun run stack down
 ```
 
 The first boot of a fresh clone compiles everything (a few minutes); reruns are
@@ -57,10 +59,13 @@ fast. Remote refs are cached in `.cache/lightning/`.
 ## Run the tests
 
 ```bash
-npm test                          # boots Lightning, runs the suite, stops it
-LIGHTNING=../lightning npm test   # ...against a local checkout
-KEEP_STACK=1 npm test             # leave Lightning running afterwards
+bun run test                          # boots Lightning, runs the suite, stops it
+LIGHTNING=../lightning bun run test   # ...against a local checkout
+KEEP_STACK=1 bun run test             # leave Lightning running afterwards
 ```
+
+> Note: `bun run test` (the vitest suite) — a bare `bun test` would invoke
+> bun's own test runner instead.
 
 > **Status:** the e2e suite is skipped until the harness seeds a scenario via
 > Kickstart and writes `tmp/manifest.json` (API token, webhook paths), and the
@@ -77,7 +82,7 @@ commit are planned.
 ## Layout
 
 ```
-src/cli.ts           `npm run stack -- up|down`
+src/cli.ts           `bun run stack up|down`
 src/source.ts        --lightning spec → checkout (shallow clone cache)
 src/stack.ts         native boot: prep checkout, mix phx.server, health, stop
 src/globalSetup.ts   vitest wiring: up before the suite, down after
