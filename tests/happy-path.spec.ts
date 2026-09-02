@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { LightningClient } from '../src/client.js';
+import { LightningClient } from '../src/clients/lightning.js';
 import { apiToken, loadManifest, MANIFEST_PATH, workflow, type Manifest } from '../src/manifest.js';
 
 /**

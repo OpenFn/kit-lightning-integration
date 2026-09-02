@@ -6,6 +6,8 @@
   "description": "Cross-repo contract tests for the Lightning <-> ws-worker boundary",
   "scripts": {
     "stack": "bun src/cli.ts",
+    "up": "bun src/cli.ts up",
+    "down": "bun src/cli.ts down",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit"

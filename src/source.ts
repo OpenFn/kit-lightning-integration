@@ -1,5 +1,5 @@
 /**
- * Resolves a `--lightning <spec>` into a local docker build context.
+ * Resolves a `--lightning <spec>` into a local Lightning checkout.
  *
  * Spec grammar:
  *   /path/to/lightning          existing local checkout, used as-is
@@ -15,7 +15,7 @@ import { existsSync, mkdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 export interface LightningSource {
-  /** Absolute path to use as the docker build context. */
+  /** Absolute path of the checkout. */
   dir: string;
   /** Resolved commit SHA (undefined for local paths — whatever's checked out). */
   sha?: string;

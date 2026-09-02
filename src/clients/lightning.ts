@@ -1,14 +1,20 @@
 /**
- * Black-box client for a running Lightning instance. Deliberately uses only the
- * public HTTP surface — the same webhook + JSON API a real integrator uses —
- * so the tests exercise the true contract, not internals.
+ * A typed TypeScript wrapper around a running Lightning instance.
+ *
+ * Construct it with an API token and point it at the instance the harness
+ * booted (defaults match `stack up`); it then lets tests talk to Lightning
+ * like a real integrator would — fire a webhook trigger, look up a work
+ * order, wait for a run to finish — without knowing any HTTP details.
+ *
+ * It deliberately speaks only Lightning's public surface (webhook endpoints +
+ * the JSON API), never internals, so tests exercise the true contract.
  */
 
 // Default matches bin/e2e's port; the harness boots Lightning there.
 const BASE_URL = process.env.HARNESS_BASE_URL ?? `http://localhost:${process.env.PORT ?? '4003'}`;
 
-/** Terminal WorkOrder states (nothing further will happen). */
-export const TERMINAL_STATES = [
+/** Exit reasons: the final states a work order can settle in. */
+export const EXIT_REASONS = [
   'success',
   'failed',
   'crashed',
@@ -22,7 +28,7 @@ export const TERMINAL_STATES = [
 export type WorkOrderState =
   | 'pending'
   | 'running'
-  | (typeof TERMINAL_STATES)[number];
+  | (typeof EXIT_REASONS)[number];
 
 export interface WebhookResult {
   work_order_id: string;
@@ -54,12 +60,12 @@ export class LightningClient {
   }
 
   /**
-   * Poll a work order until it reaches a terminal state (or one of `until`).
+   * Poll a work order until it settles in an exit reason (or one of `until`).
    * Throws on timeout so a stuck worker/protocol break surfaces as a failure.
    */
   async waitForWorkOrder(
     id: string,
-    { timeoutMs = 90_000, intervalMs = 1_000, until = TERMINAL_STATES as readonly string[] } = {},
+    { timeoutMs = 90_000, intervalMs = 1_000, until = EXIT_REASONS as readonly string[] } = {},
   ): Promise<WorkOrderState> {
     const deadline = Date.now() + timeoutMs;
     let last: WorkOrderState = 'pending';

@@ -1,10 +1,10 @@
 /**
- * Boots and stops Lightning natively from a source checkout — no docker.
+ * Boots and stops Lightning as a local process, straight from a source
+ * checkout — the same way a Lightning developer runs it.
  *
  * `up` prepares the checkout (deps, assets, db create + migrate) and runs
  * `mix phx.server` detached, waiting for /health_check; the PID lands in
- * tmp/harness-state.json so `down` can stop it. Seeding via Kickstart is the
- * next milestone and layers on top of this.
+ * tmp/harness-state.json so `down` can stop it.
  *
  * Prerequisites on the host: Elixir/Erlang matching Lightning's .tool-versions
  * (asdf picks them up), node, and a postgres reachable at DATABASE_URL.
@@ -21,8 +21,10 @@ export const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
 export const PORT = process.env.PORT ?? '4003';
 export const BASE_URL = `http://localhost:${PORT}`;
+// A database of our own: never the dev DB, and not shared with Lightning's
+// bin/e2e either — harness runs can't touch anyone else's data.
 const DATABASE_URL =
-  process.env.DATABASE_URL ?? 'postgres://postgres:postgres@localhost/lightning_test_e2e';
+  process.env.DATABASE_URL ?? 'postgres://postgres:postgres@localhost/lightning_integration_e2e';
 const HEALTH_TIMEOUT_MS = Number(process.env.HARNESS_BOOT_TIMEOUT_MS ?? 600_000);
 
 const STATE_FILE = resolve(root, 'tmp', 'harness-state.json');
@@ -35,8 +37,8 @@ function lightningEnv(): NodeJS.ProcessEnv {
     MIX_ENV: 'dev',
     PORT,
     DATABASE_URL,
-    // Lightning must NOT spawn its own worker — the harness runs its own so
-    // the worker under test is swappable (next milestone).
+    // Lightning must NOT spawn its own worker — the harness controls which
+    // worker connects, so the worker under test is always an explicit choice.
     RTM: 'false',
   };
 }
@@ -93,7 +95,7 @@ export async function down(): Promise<void> {
     console.log('[harness] nothing to stop (no tmp/harness-state.json — was `up` run?)');
     return;
   }
-  const { pid } = JSON.parse(readFileSync(STATE_FILE, 'utf8')) as { pid: number };
+  const { pid, dir } = JSON.parse(readFileSync(STATE_FILE, 'utf8')) as { pid: number; dir: string };
 
   console.log(`[harness] stopping Lightning (pid ${pid})…`);
   signal(pid, 'SIGTERM');
@@ -101,6 +103,17 @@ export async function down(): Promise<void> {
   if (alive(pid)) {
     console.log('[harness] still up after SIGTERM — killing.');
     signal(pid, 'SIGKILL');
+  }
+
+  // Drop the harness database so nothing bleeds over into the next run
+  // (`up` recreates and migrates it). Best-effort: the checkout may be gone.
+  if (existsSync(dir)) {
+    console.log('[harness] dropping the harness database…');
+    try {
+      mix(dir, 'ecto.drop', '--quiet');
+    } catch {
+      console.log('[harness] could not drop the database (continuing).');
+    }
   }
 
   rmSync(STATE_FILE, { force: true });

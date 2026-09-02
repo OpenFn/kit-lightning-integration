@@ -1,43 +1,40 @@
 # lightning-worker-contract-tests
 
-End-to-end integration tests for the **Lightning ↔ ws-worker** boundary
-([lightning#4784](https://github.com/OpenFn/lightning/issues/4784)).
+Run real end-to-end tests between Lightning and the worker, with either side
+built from any branch.
 
-The only real coupling between [`OpenFn/lightning`](https://github.com/OpenFn/lightning)
-and [`OpenFn/kit`](https://github.com/OpenFn/kit) is the WebSocket protocol the
-`@openfn/ws-worker` speaks to Lightning's `/worker` channel (JWT auth, run
-claim/start/log/complete). Each repo tests that boundary against a *fake* of the
-other; this harness runs **real Lightning × real worker**, built from any branch,
-and drives them as a black-box integrator (webhooks in, run results out).
-
-## Prerequisites
-
-- **bun** (runs the harness itself), plus **node** — Lightning's assets and
-  the worker under test run on node, as they do in production.
-- **Elixir/Erlang** matching Lightning's `.tool-versions` (asdf picks it up
-  automatically inside the checkout).
-- On ARM hosts (Apple Silicon): **Rust**, to build the `rambo` dep from source
-  — the same prerequisite Lightning's own `bin/bootstrap` enforces.
-- **Postgres** reachable at `DATABASE_URL` (default
-  `postgres://postgres:postgres@localhost/lightning_test_e2e`) — run it however
-  you already do.
-Booting works against any Lightning ref; the
-[Kickstart PR (lightning#5026)](https://github.com/OpenFn/lightning/pull/5026)
-only becomes required at the seeding milestone.
-
-## Boot Lightning
-
-One command — the harness resolves the source, clones it if remote, prepares
-the checkout (deps, assets, runtime, db create + migrate — the same sequence as
-Lightning's `bin/bootstrap`), runs `mix phx.server` detached, and waits until
-it's healthy:
+## Quickstart
 
 ```bash
 bun install
-bun run stack up --lightning main
+bun run up --lightning ../lightning    # or a branch: --lightning main
 ```
 
-`--lightning` (or the `LIGHTNING` env var) accepts:
+That boots a real Lightning at <http://localhost:4003> from whatever source
+you pointed at. When you're done:
+
+```bash
+bun down
+```
+
+(`bun up` is taken by bun itself — an alias of `bun update` — hence
+`bun run up`. `bun run stack up|down` also works.)
+
+### What you need installed
+
+- **bun** — runs the harness. **node** too: Lightning's assets and the worker
+  run on node, as they do in production.
+- **Elixir/Erlang** matching Lightning's `.tool-versions` (asdf picks it up
+  automatically inside the checkout).
+- **Postgres** on localhost. The harness uses its own database
+  (`lightning_integration_e2e` by default, dropped on `down`) — it will never
+  touch your dev data. Point `DATABASE_URL` elsewhere to override.
+- On Apple Silicon: **Rust**, to build Lightning's `rambo` dep from source —
+  the same requirement Lightning's own `bin/bootstrap` enforces.
+
+## Choosing what to test
+
+`--lightning` (or the `LIGHTNING` env var) takes:
 
 | Spec                      | Meaning                                        |
 | ------------------------- | ---------------------------------------------- |
@@ -46,17 +43,16 @@ bun run stack up --lightning main
 | `owner/repo#ref`          | branch/tag/SHA on a fork                       |
 | `../lightning`            | a local checkout, used as-is                   |
 
-Lightning comes up at <http://localhost:4003> (its log streams to
-`tmp/lightning.log`). Stop it with:
+Remote refs are cloned into `.cache/lightning/` and reused; a local checkout
+is used in place. The first boot of a fresh clone compiles everything (a few
+minutes) — after that it's fast.
 
-```bash
-bun run stack down
-```
+Under the hood, `up` runs the same steps a Lightning dev would: the
+`bin/bootstrap` prep sequence (deps, assets, runtime, db create + migrate),
+then `mix phx.server`, and waits for `/health_check`. Logs stream to
+`tmp/lightning.log`; `down` stops the server and drops the harness database.
 
-The first boot of a fresh clone compiles everything (a few minutes); reruns are
-fast. Remote refs are cached in `.cache/lightning/`.
-
-## Run the tests
+## Running the tests
 
 ```bash
 bun run test                          # boots Lightning, runs the suite, stops it
@@ -64,38 +60,32 @@ LIGHTNING=../lightning bun run test   # ...against a local checkout
 KEEP_STACK=1 bun run test             # leave Lightning running afterwards
 ```
 
-> Note: `bun run test` (the vitest suite) — a bare `bun test` would invoke
-> bun's own test runner instead.
+> `bun run test` runs the vitest suite — a bare `bun test` would invoke bun's
+> own test runner instead.
 
-> **Status:** the e2e suite is skipped until the harness seeds a scenario via
-> Kickstart and writes `tmp/manifest.json` (API token, webhook paths), and the
-> worker isn't attached yet — both are next milestones. Booting from any ref
-> (above) is what works today.
+**Status:** the harness can boot Lightning from any ref. It does not yet seed
+test data (via [Kickstart, lightning#5026](https://github.com/OpenFn/lightning/pull/5026))
+or attach a worker, so the e2e suite currently skips itself.
 
-## CI
+## Why this repo exists
 
-`.github/workflows/test-lightning-branch.yml` (manual `workflow_dispatch`)
-runs the suite against any Lightning repo/ref, with postgres as a service
-container. Cross-repo triggers with pass/fail checks posted back on the source
-commit are planned.
+The real coupling between [`OpenFn/lightning`](https://github.com/OpenFn/lightning)
+and [`OpenFn/kit`](https://github.com/OpenFn/kit) is the WebSocket protocol
+`@openfn/ws-worker` speaks to Lightning's `/worker` channel. Today each repo
+tests that boundary against a fake of the other, so a breaking change on
+either side ships green and explodes in integration
+([lightning#4784](https://github.com/OpenFn/lightning/issues/4784)). This
+harness runs the real pair and drives it as a black-box integrator: webhooks
+in, run results out.
 
 ## Layout
 
 ```
-src/cli.ts           `bun run stack up|down`
-src/source.ts        --lightning spec → checkout (shallow clone cache)
-src/stack.ts         native boot: prep checkout, mix phx.server, health, stop
-src/globalSetup.ts   vitest wiring: up before the suite, down after
-src/client.ts        black-box HTTP client (webhook + JSON API)
-scenarios/*.json     declarative kickstart scenarios
-tests/*.spec.ts      the e2e suites
+src/cli.ts              `bun run up|down` (and `bun run stack up|down`)
+src/source.ts           --lightning spec → checkout (shallow clone cache)
+src/stack.ts            native boot: prep checkout, mix phx.server, health, stop
+src/globalSetup.ts      vitest wiring: up before the suite, down after
+src/clients/lightning.ts  typed TS wrapper around a running Lightning
+scenarios/              declarative kickstart scenarios (used once seeding lands)
+tests/*.spec.ts         the e2e suites
 ```
-
-## Roadmap
-
-1. ~~Boot Lightning from any GitHub ref or local path~~ ✅
-2. Run the worker from a kit branch, local path, or npm version
-3. Seed a scenario via Kickstart; save the manifest for tests
-4. First e2e test green: webhook → worker → successful run
-5. Sync-webhook canary test (the kit#1306 / lightning#4531 regression)
-6. CI: caching, nightly main × main, cross-repo triggers
