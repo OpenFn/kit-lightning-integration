@@ -11,13 +11,18 @@ on:
         description: "Lightning repo (owner/name) — change for a fork"
         required: false
         default: OpenFn/lightning
+      worker:
+        description: "Worker spec: npm version (latest, 1.14.1), kit ref, or owner/repo#ref"
+        required: false
+        default: latest
 
 jobs:
   contract:
     runs-on: ubuntu-latest
     env:
       LIGHTNING: "${{ inputs.lightning_repo || 'OpenFn/lightning' }}#${{ inputs.lightning_ref }}"
-      KEEP_STACK: "1" # leave Lightning up so we can grab its log on failure
+      WORKER: ${{ inputs.worker || 'latest' }}
+      KEEP_STACK: "1" # leave the stack up so we can grab logs on failure
 
     services:
       postgres:
@@ -50,6 +55,11 @@ jobs:
 
       - uses: oven-sh/setup-bun@v2
 
+      # For worker-from-kit-checkout specs; harmless otherwise.
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
       - run: bun install
 
       # Boots Lightning natively (clones $LIGHTNING, mix deps.get,
@@ -57,12 +67,14 @@ jobs:
       - name: Run contract tests (Lightning built from source)
         run: bun run test
 
-      - name: Upload Lightning log
+      - name: Upload stack logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: lightning-log-${{ inputs.lightning_ref }}
-          path: tmp/lightning.log
+          name: stack-logs-${{ inputs.lightning_ref }}
+          path: |
+            tmp/lightning.log
+            tmp/worker.log
           if-no-files-found: ignore
 
       - name: Stop Lightning
