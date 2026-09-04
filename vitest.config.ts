@@ -4,6 +4,8 @@ export default defineConfig({
   test: {
     globals: true,
     globalSetup: './src/globalSetup.ts',
+    // Registers the run matchers (toSucceed / toFailRun) for every suite.
+    setupFiles: ['./tests/matchers.ts'],
     // The stack + worker round-trip is not instant; give runs room.
     testTimeout: 120_000,
     hookTimeout: 300_000,

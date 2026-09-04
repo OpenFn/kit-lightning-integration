@@ -34,6 +34,16 @@ export interface WebhookResult {
   work_order_id: string;
 }
 
+/** A line of job/runtime output, as Lightning recorded it. */
+export interface LogLine {
+  source: string;
+  level: string;
+  message: string;
+  timestamp: string;
+  step_id: string | null;
+  run_id: string | null;
+}
+
 export class LightningClient {
   constructor(
     private readonly token: string,
@@ -51,6 +61,24 @@ export class LightningClient {
       throw new Error(`Webhook ${webhookPath} returned ${res.status}: ${await res.text()}`);
     }
     return (await res.json()) as WebhookResult;
+  }
+
+  /**
+   * Log lines for a work order, oldest first — what the job and the worker
+   * printed while it ran. This is the only view of a run's innards available
+   * to an API client, so it's what test failures report.
+   *
+   * `limit` caps how many of the MOST RECENT lines are fetched (the API pages
+   * newest-first); they're returned in chronological order.
+   */
+  async getLogLines(workOrderId: string, limit = 100): Promise<LogLine[]> {
+    const res = await this.api(
+      `/api/log_lines?work_order_id=${workOrderId}&page_size=${limit}`,
+    );
+    const json = (await res.json()) as { data: { attributes: LogLine }[] };
+    return json.data
+      .map(d => d.attributes)
+      .sort((a, b) => a.timestamp.localeCompare(b.timestamp));
   }
 
   async getWorkOrderState(id: string): Promise<WorkOrderState> {

@@ -1,0 +1,34 @@
+# The simplest end-to-end scenario: one user with an API token, one project,
+# one webhook-triggered workflow with a single passthrough job.
+#
+# Kickstart scenario format — see bin/e2e.d/scenarios/README.md in Lightning
+# (PR #5026). Idempotent: re-running converges instead of duplicating.
+
+users:
+  - email: harness@openfn.org
+    first_name: Harry
+    last_name: Harness
+    api_token: true # surfaced in the manifest; the tests drive the API with it
+
+projects:
+  - name: contract-tests
+    members:
+      - { email: harness@openfn.org, role: owner }
+    workflows:
+      - name: Webhook Passthrough
+        triggers:
+          webhook:
+            type: webhook
+            enabled: true
+        jobs:
+          echo:
+            name: Echo
+            adaptor: "@openfn/language-common@latest"
+            body: |
+              fn(state => ({ ...state, data: { ...state.data, echoed: true } }));
+        edges:
+          webhook->echo:
+            source_trigger: webhook
+            target_job: echo
+            condition_type: always
+            enabled: true
