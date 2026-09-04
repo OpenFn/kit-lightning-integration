@@ -2,8 +2,8 @@
  * vitest globalSetup: boot the stack before the suite, tear it down after.
  * Same code path as `bun run up` — $LIGHTNING / $WORKER pick the sources.
  *
- * TODO(seeding): kickstart a scenario here once the harness wires up
- * Lightning.Setup.kickstart/2, so tests get a manifest (token, webhook paths).
+ * Test data is not seeded here: each suite seeds the scenario it needs with
+ * `seedScenario()`, so a test's fixture is visible in the test.
  */
 
 import { resolveLightningSource, resolveWorkerSource } from './source.js';

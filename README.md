@@ -57,6 +57,8 @@ plus published versions:
 | `owner/repo#ref`          | branch/tag/SHA on a fork                       |
 | `../kit`                  | a local checkout (built only if `dist` missing)|
 
+Omitted, they default to `main` and the published `latest`.
+
 Remote refs are cloned into `.cache/lightning/` and `.cache/kit/` and reused;
 local checkouts are used in place. The first boot of a fresh clone compiles
 everything (a few minutes) — after that it's fast.
@@ -77,12 +79,82 @@ LIGHTNING=../lightning WORKER=../kit bun run test   # ...against local checkouts
 KEEP_STACK=1 bun run test                       # leave the stack running afterwards
 ```
 
+> **Today the suite needs a Lightning that has Kickstart**, which `main`
+> doesn't yet — until
+> [lightning#5026](https://github.com/OpenFn/lightning/pull/5026) merges, point
+> it at that branch: `LIGHTNING=bootstrap-from-config bun run test`.
+
 > `bun run test` runs the vitest suite — a bare `bun test` would invoke bun's
 > own test runner instead.
 
-**Status:** the harness can boot both sides from any ref. It does not yet seed
-test data (via [Kickstart, lightning#5026](https://github.com/OpenFn/lightning/pull/5026)),
-so the e2e suite currently skips itself.
+## Writing tests
+
+A test names the scenario it needs, triggers a workflow, and asserts on the
+result — the manifest, webhook paths, tokens and polling are handled for you:
+
+```ts
+import { useScenario } from '../src/testing.js';
+
+describe('webhook -> worker -> success', () => {
+  const lightning = useScenario('scenarios/webhook-passthrough.yaml');
+
+  it('runs a webhook-triggered workflow to completion', async () => {
+    await expect(lightning.workflow('Webhook Passthrough').trigger({ x: 1 })).toSucceed();
+  });
+});
+```
+
+`trigger()` POSTs to the workflow's webhook and resolves once the work order
+settles, whatever the outcome — `toSucceed()` / `toFailRun()` assert which one
+you expected. When the assertion fails it prints the run's log lines, so you
+find out why without opening `tmp/worker.log`:
+
+```
+expected work order to succeed, got "failed"
+  workflow  Boom
+  work order  e6b847e4-ffd5-496d-b42b-e7d651541f9e
+  logs
+    … 3 earlier lines omitted
+    [R/T] Starting operation 1
+    [R/T] Boom aborted with error (270ms)
+    [R/T] kaboom from the job
+    [R/T] JobError: kaboom from the job
+    [R/T] Run complete with status: fail
+```
+
+Need more than pass/fail? `await run.logs()` returns the lines, and
+`lightning.client` is the raw HTTP client. Note that a job's *output data*
+isn't reachable this way — Lightning only exposes dataclips to a logged-in
+browser session — so assert on what the job logs, or (once sync webhooks land)
+on the webhook's response body.
+
+## Test data
+
+`up` gives you an empty Lightning. Test data comes from **scenarios** — yaml
+files in [scenarios/](scenarios/) describing users, projects and workflows —
+and each suite seeds the one it needs, so a test's fixture is visible in the
+test:
+
+```ts
+beforeAll(() => {
+  manifest = seedScenario('scenarios/webhook-passthrough.yaml');
+  client = new LightningClient(apiToken(manifest));
+});
+```
+
+`seedScenario` takes the path to a scenario file, runs
+`mix lightning.kickstart` with it, and returns the scenario's **manifest** —
+the record ids, API token and webhook paths for the data it just created.
+Seeding is idempotent, so suites can share a scenario. To seed one by hand and
+inspect it:
+
+```bash
+bun run stack seed scenarios/webhook-passthrough.yaml
+```
+
+Scenarios only work against a Lightning that has Kickstart (see the note
+above). The scenario file format is documented in Lightning's
+`bin/e2e.d/scenarios/README.md`.
 
 ## Why this repo exists
 
@@ -98,11 +170,15 @@ in, run results out.
 ## Layout
 
 ```
-src/cli.ts              `bun run up|down` (and `bun run stack up|down`)
+src/cli.ts              `bun run up|down|stack seed`
 src/source.ts           --lightning/--worker specs → checkout or npm version
-src/stack.ts            native boot: Lightning (mix phx.server) + worker, health, stop
-src/globalSetup.ts      vitest wiring: up before the suite, down after
+src/stack.ts            native boot: Lightning (mix phx.server) + worker, stop
+src/scenario.ts         seedScenario(): kickstart a scenario, return its manifest
+src/testing.ts          useScenario() + the workflow/run API tests are written against
+src/manifest.ts         types + helpers for reading a manifest
 src/clients/lightning.ts  typed TS wrapper around a running Lightning
-scenarios/              declarative kickstart scenarios (used once seeding lands)
+src/globalSetup.ts      vitest wiring: up before the suite, down after
+scenarios/*.yaml        declarative kickstart scenarios
+tests/matchers.ts       toSucceed() / toFailRun(), with log-reporting failures
 tests/*.spec.ts         the e2e suites
 ```

@@ -43,11 +43,11 @@ const HEALTH_TIMEOUT_MS = Number(process.env.HARNESS_BOOT_TIMEOUT_MS ?? 600_000)
 const WORKER_SECRET =
   process.env.WORKER_SECRET ?? 'ZOr2sjacHZnql7WYETL2x61d6RDdecnyLWieoG+bX6Q=';
 
-const STATE_FILE = resolve(root, 'tmp', 'harness-state.json');
+export const STATE_FILE = resolve(root, 'tmp', 'harness-state.json');
 const LIGHTNING_LOG = resolve(root, 'tmp', 'lightning.log');
 const WORKER_LOG = resolve(root, 'tmp', 'worker.log');
 
-interface State {
+export interface State {
   lightning?: { pid: number; dir: string };
   worker?: { pid: number; label: string };
   port: string;
@@ -74,7 +74,7 @@ function run(dir: string, env: NodeJS.ProcessEnv, cmd: string, ...args: string[]
   execFileSync(cmd, args, { cwd: dir, stdio: 'inherit', env });
 }
 
-function mix(dir: string, ...args: string[]): void {
+export function mix(dir: string, ...args: string[]): void {
   run(dir, lightningEnv(), 'mix', ...args);
 }
 
@@ -234,7 +234,7 @@ function listeners(port: string): number[] {
   }
 }
 
-function alive(pid: number): boolean {
+export function alive(pid: number): boolean {
   try {
     process.kill(-pid, 0);
     return true;

@@ -2,19 +2,23 @@
  * Harness CLI.
  *
  *   bun run stack up [--lightning <spec>] [--worker <spec>]
+ *   bun run stack seed <scenario-path>
  *   bun run stack down
  *
  * Flags fall back to $LIGHTNING / $WORKER, then OpenFn/lightning@main and
- * @openfn/ws-worker@latest.
+ * @openfn/ws-worker@latest. `up` boots an empty stack; seeding is explicit —
+ * tests seed the scenario they need, and `seed` does it by hand.
  */
 
 import { parseArgs } from 'node:util';
 
+import { seedScenario } from './scenario.js';
 import { resolveLightningSource, resolveWorkerSource } from './source.js';
 import { down, root, up } from './stack.js';
 
 const USAGE = `Usage:
   bun run stack up [--lightning <spec>] [--worker <spec>]
+  bun run stack seed <scenario-path>  seed a scenario, print its manifest
   bun run stack down
 
 Lightning specs:
@@ -37,12 +41,24 @@ const { positionals, values } = parseArgs({
   },
 });
 
-const [command] = positionals;
+const [command, arg] = positionals;
 
 switch (command) {
   case 'up':
-    await up(resolveLightningSource(values.lightning, root), resolveWorkerSource(values.worker, root));
+    await up(
+      resolveLightningSource(values.lightning, root),
+      resolveWorkerSource(values.worker, root),
+    );
     break;
+  case 'seed': {
+    if (!arg) {
+      console.error('Which scenario? e.g. `bun run stack seed scenarios/webhook-passthrough.yaml`');
+      process.exit(1);
+    }
+    const manifest = seedScenario(arg);
+    console.log(JSON.stringify(manifest, null, 2));
+    break;
+  }
   case 'down':
     await down();
     break;
