@@ -23,7 +23,9 @@ import { existsSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync } 
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 
+import { stepSummary } from './ci.js';
 import type { CheckoutSource, WorkerSource } from './source.js';
+import { checkToolchain } from './toolchain.js';
 
 export const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -97,6 +99,8 @@ async function upLightning(source: CheckoutSource, state: State): Promise<void> 
   // Same sequence as Lightning's own bin/bootstrap; everything is idempotent
   // and cached, so re-runs on a warm checkout are quick.
   console.log(`[harness] preparing ${source.label}…`);
+  // Fail here with "install Erlang X" rather than three steps later with exit 126.
+  checkToolchain(source.dir, source.label);
   mix(source.dir, 'deps.get');
   run(source.dir, lightningEnv(), 'npm', 'install', '--prefix', 'assets');
   mix(source.dir, 'assets.setup');
@@ -254,11 +258,15 @@ async function waitFor(name: string, url: string, pid: number, logFile: string):
       // Not accepting connections yet.
     }
     if (!alive(pid)) {
-      throw new Error(`${name} exited during boot. Log tail:\n${logTail(logFile)}`);
+      const tail = logTail(logFile);
+      stepSummary(`${name} exited during boot`, tail);
+      throw new Error(`${name} exited during boot. Log tail:\n${tail}`);
     }
     await sleep(1_000);
   }
-  throw new Error(`${name} not healthy after ${HEALTH_TIMEOUT_MS}ms. Log tail:\n${logTail(logFile)}`);
+  const tail = logTail(logFile);
+  stepSummary(`${name} not healthy after ${HEALTH_TIMEOUT_MS}ms`, tail);
+  throw new Error(`${name} not healthy after ${HEALTH_TIMEOUT_MS}ms. Log tail:\n${tail}`);
 }
 
 function logTail(logFile: string, lines = 40): string {

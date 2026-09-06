@@ -87,6 +87,27 @@ KEEP_STACK=1 bun run test                       # leave the stack running afterw
 > `bun run test` runs the vitest suite — a bare `bun test` would invoke bun's
 > own test runner instead.
 
+Before touching the checkout, `up` checks that the host's Erlang and Elixir
+match the checkout's `.tool-versions` and fails with an install hint if not —
+rather than three steps later with `mix` exiting 126. Node is only advisory
+(a major-version skew works fine).
+
+## Running in CI
+
+[`test-lightning-branch.yml`](.github/workflows/test-lightning-branch.yml) is a
+`workflow_dispatch` that does the same thing on a GitHub runner: check out the
+chosen Lightning ref, install the Erlang/Elixir/node **it** pins (read from its
+`.tool-versions` — nothing is hardcoded in the workflow), boot the pair, run the
+suite. Run it from the Actions tab or:
+
+```bash
+gh workflow run test-lightning-branch.yml -f lightning_ref=main -f worker=latest
+```
+
+Failures land on the run's summary page (the failing run's log tail, or the
+toolchain mismatch), and `tmp/*.log` are uploaded as an artifact. Nothing is
+cached yet, so a run compiles Lightning from scratch.
+
 ## Writing tests
 
 A test names the scenario it needs, triggers a workflow, and asserts on the

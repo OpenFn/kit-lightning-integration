@@ -1,10 +1,16 @@
 name: Test against a Lightning branch
 
+# Boots a real Lightning (built from the chosen ref) and a real ws-worker on
+# the runner, then runs the contract suite against the pair.
+#
+# The toolchain is *not* pinned here: Erlang/Elixir/node come from the
+# checkout's own .tool-versions, so a Lightning bump can't silently break this.
+
 on:
   workflow_dispatch:
     inputs:
       lightning_ref:
-        description: "Lightning branch, tag, or full SHA to test"
+        description: "Lightning branch, tag, or SHA to test"
         required: true
         default: main
       lightning_repo:
@@ -16,17 +22,24 @@ on:
         required: false
         default: latest
 
+concurrency:
+  group: contract-${{ inputs.lightning_repo }}-${{ inputs.lightning_ref }}-${{ inputs.worker }}
+  cancel-in-progress: true
+
 jobs:
   contract:
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     env:
-      LIGHTNING: "${{ inputs.lightning_repo || 'OpenFn/lightning' }}#${{ inputs.lightning_ref }}"
+      # The harness sees a local checkout: actions/checkout has already resolved
+      # the ref (any repo, any SHA), and a known path is what caching keys need.
+      LIGHTNING: ${{ github.workspace }}/.cache/lightning
       WORKER: ${{ inputs.worker || 'latest' }}
-      KEEP_STACK: "1" # leave the stack up so we can grab logs on failure
+      KEEP_STACK: "1" # leave the stack up so logs are intact for the upload step
 
     services:
       postgres:
-        image: postgres:15
+        image: postgres:17
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
@@ -41,17 +54,25 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Match Lightning's .tool-versions.
+      - name: Checkout Lightning @ ${{ inputs.lightning_ref }}
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ inputs.lightning_repo || 'OpenFn/lightning' }}
+          ref: ${{ inputs.lightning_ref }}
+          path: .cache/lightning
+
+      # Erlang/Elixir exactly as the checkout pins them (setup-beam requires
+      # `strict` when reading from a file).
       - uses: erlef/setup-beam@v1
         with:
-          elixir-version: "1.18.3"
-          otp-version: "27.3.3"
+          version-file: .cache/lightning/.tool-versions
+          version-type: strict
 
-      # Node runs Lightning's assets install and the worker under test;
-      # bun runs the harness itself.
+      # Node runs Lightning's assets and the worker under test — again from
+      # the checkout's pin. bun runs the harness itself.
       - uses: actions/setup-node@v4
         with:
-          node-version: "24"
+          node-version-file: .cache/lightning/.tool-versions
 
       - uses: oven-sh/setup-bun@v2
 
@@ -60,23 +81,28 @@ jobs:
         with:
           version: 10
 
+      # Lightning's `enacl` builds from source and links libsodium.
+      - name: Install system deps
+        run: sudo apt-get update -q && sudo apt-get install -y -q libsodium-dev
+
       - run: bun install
 
-      # Boots Lightning natively (clones $LIGHTNING, mix deps.get,
-      # mix phx.server, waits for health) and runs the suite against it.
-      - name: Run contract tests (Lightning built from source)
+      # Prepares the checkout (deps, assets, runtime, db), boots Lightning +
+      # worker, runs the suite. Uncached for now: this run measures where the
+      # time goes before we decide what to cache.
+      - name: Run contract tests
         run: bun run test
 
       - name: Upload stack logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: stack-logs-${{ inputs.lightning_ref }}
+          name: stack-logs
           path: |
             tmp/lightning.log
             tmp/worker.log
           if-no-files-found: ignore
 
-      - name: Stop Lightning
+      - name: Stop the stack
         if: always()
-        run: bun run stack down || true
+        run: bun run down || true
