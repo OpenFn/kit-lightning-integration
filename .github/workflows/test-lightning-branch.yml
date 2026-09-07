@@ -31,8 +31,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
-      # The harness sees a local checkout: actions/checkout has already resolved
-      # the ref (any repo, any SHA), and a known path is what caching keys need.
+      # The harness always takes a local checkout path — the "Checkout Lightning"
+      # step below has already fetched the chosen ref there.
       LIGHTNING: ${{ github.workspace }}/.cache/lightning
       WORKER: ${{ inputs.worker || 'latest' }}
       KEEP_STACK: "1" # leave the stack up so logs are intact for the upload step
@@ -88,8 +88,8 @@ jobs:
       - run: bun install
 
       # Prepares the checkout (deps, assets, runtime, db), boots Lightning +
-      # worker, runs the suite. Uncached for now: this run measures where the
-      # time goes before we decide what to cache.
+      # worker, runs the suite. No caching yet, so this recompiles Lightning
+      # from scratch on every run.
       - name: Run contract tests
         run: bun run test
 

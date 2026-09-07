@@ -125,7 +125,7 @@ async function upLightning(source: CheckoutSource, state: State): Promise<void> 
   // Same sequence as Lightning's own bin/bootstrap; everything is idempotent
   // and cached, so re-runs on a warm checkout are quick.
   console.log(`[harness] preparing ${source.label}…`);
-  // Fail here with "install Erlang X" rather than three steps later with exit 126.
+  // Must run before deps.get — a wrong toolchain fails there with no useful message.
   checkToolchain(source.dir, source.label);
   mix(source.dir, 'deps.get');
   run(source.dir, lightningEnv(), 'npm', 'install', '--prefix', 'assets');

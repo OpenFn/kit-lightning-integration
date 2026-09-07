@@ -2,9 +2,10 @@
  * Preflight: does the host's Erlang/Elixir match what the Lightning checkout
  * pins in `.tool-versions`?
  *
- * Without this, a version gap surfaces as `mix deps.get` dying with exit 126
- * (asdf refusing to pick a binary) or as a compile explosion against the
- * wrong OTP — neither says "install Erlang 28.5". This does.
+ * A mismatch here otherwise surfaces deep inside `mix deps.get` or a compile
+ * step, as an asdf shim error or a cryptic build failure — nothing that
+ * points back to "wrong Erlang version". This check runs first and names the
+ * problem directly.
  *
  * Erlang and Elixir are hard requirements. Node is advisory: Lightning's
  * assets and runtime tolerate a major-version skew (v22 vs the pinned v24
