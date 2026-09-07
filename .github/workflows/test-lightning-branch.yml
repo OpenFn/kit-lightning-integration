@@ -6,6 +6,12 @@ name: Test against a Lightning branch
 # The toolchain is *not* pinned here: Erlang/Elixir/node come from the
 # checkout's own .tool-versions, so a Lightning bump can't silently break this.
 
+# Shows which ref/worker each run tested in the Actions run list — otherwise
+# every dispatch looks identical until you open it.
+run-name: >-
+  ${{ inputs.lightning_repo || 'OpenFn/lightning' }}@${{ inputs.lightning_ref || 'main' }}
+  vs worker ${{ inputs.worker || 'latest' }}
+
 on:
   workflow_dispatch:
     inputs:
@@ -28,6 +34,7 @@ concurrency:
 
 jobs:
   contract:
+    name: Boot Lightning + worker, run the contract suite
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
@@ -90,7 +97,7 @@ jobs:
       # Prepares the checkout (deps, assets, runtime, db), boots Lightning +
       # worker, runs the suite. No caching yet, so this recompiles Lightning
       # from scratch on every run.
-      - name: Run contract tests
+      - name: Run integration tests
         run: bun run test
 
       - name: Upload stack logs
