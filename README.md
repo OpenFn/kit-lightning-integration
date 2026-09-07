@@ -69,7 +69,9 @@ then `mix phx.server`, then the worker — waiting for `/health_check` and
 `/livez`. Both sides share the dev-mode `WORKER_SECRET`, pinned by the harness
 so a checkout's own `.env` can't desync them. Logs stream to
 `tmp/lightning.log` / `tmp/worker.log`; `down` stops both and drops the
-harness database.
+harness database. The prep steps (`deps.get`, asset/runtime install, db
+create) write to `tmp/prep.log` instead of the console — silent when they
+succeed, printed in full the moment one fails.
 
 ## Running the tests
 

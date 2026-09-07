@@ -19,7 +19,7 @@
  */
 
 import { execFileSync, spawn } from 'node:child_process';
-import { existsSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 
@@ -48,6 +48,9 @@ const WORKER_SECRET =
 export const STATE_FILE = resolve(root, 'tmp', 'harness-state.json');
 const LIGHTNING_LOG = resolve(root, 'tmp', 'lightning.log');
 const WORKER_LOG = resolve(root, 'tmp', 'worker.log');
+// One-off prep commands (deps.get, npm/pnpm install, kickstart, …) write here
+// instead of the console — see `run()`.
+const PREP_LOG = resolve(root, 'tmp', 'prep.log');
 
 export interface State {
   lightning?: { pid: number; dir: string };
@@ -72,8 +75,30 @@ function lightningEnv(): NodeJS.ProcessEnv {
   };
 }
 
+/**
+ * Run a one-off prep command (deps.get, npm/pnpm install, kickstart, …).
+ *
+ * Output goes to tmp/prep.log, not the console: on a successful run these
+ * commands produce nothing worth reading (dependency resolution noise, and —
+ * for `mix lightning.kickstart` — every Ecto query at Lightning's dev debug
+ * level), which otherwise buries the actual test result in CI. On failure the
+ * accumulated log *is* the diagnosis, so it's dumped in full — to the console
+ * and to $GITHUB_STEP_SUMMARY.
+ */
 function run(dir: string, env: NodeJS.ProcessEnv, cmd: string, ...args: string[]): void {
-  execFileSync(cmd, args, { cwd: dir, stdio: 'inherit', env });
+  const label = [cmd, ...args].join(' ');
+  writeFileSync(PREP_LOG, `\n$ ${label}\n`, { flag: 'a' });
+  const fd = openSync(PREP_LOG, 'a');
+  try {
+    execFileSync(cmd, args, { cwd: dir, stdio: ['ignore', fd, fd], env });
+  } catch (err) {
+    closeSync(fd);
+    const tail = logTail(PREP_LOG, 80);
+    console.error(`[harness] \`${label}\` failed. Output:\n${tail}`);
+    stepSummary(`\`${label}\` failed`, tail);
+    throw err;
+  }
+  closeSync(fd);
 }
 
 export function mix(dir: string, ...args: string[]): void {
@@ -89,6 +114,7 @@ export async function up(lightning: CheckoutSource, worker: WorkerSource): Promi
   }
 
   mkdirSync(resolve(root, 'tmp'), { recursive: true });
+  rmSync(PREP_LOG, { force: true });
   const state: State = { port: PORT };
 
   await upLightning(lightning, state);

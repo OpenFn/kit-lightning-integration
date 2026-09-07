@@ -101,6 +101,7 @@ jobs:
           path: |
             tmp/lightning.log
             tmp/worker.log
+            tmp/prep.log
           if-no-files-found: ignore
 
       - name: Stop the stack
