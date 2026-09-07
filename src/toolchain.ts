@@ -1,22 +1,21 @@
 /**
- * Preflight: does the host's Erlang/Elixir match what the Lightning checkout
- * pins in `.tool-versions`?
+ * Checks that the host's Erlang/Elixir match what a checkout pins in
+ * `.tool-versions`, before anything invokes `mix`.
  *
- * A mismatch here otherwise surfaces deep inside `mix deps.get` or a compile
- * step, as an asdf shim error or a cryptic build failure — nothing that
- * points back to "wrong Erlang version". This check runs first and names the
- * problem directly.
+ * A mismatched toolchain otherwise fails deep inside `mix deps.get` or
+ * mid-compile — an asdf shim error or an unrelated-looking build failure,
+ * not something that reads as a version problem.
  *
  * Erlang and Elixir are hard requirements. Node is advisory: Lightning's
  * assets and runtime tolerate a major-version skew (v22 vs the pinned v24
  * works fine), so a mismatch there only warns.
  */
 
-import { execFileSync } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { execFileSync } from "node:child_process";
+import { existsSync, readFileSync } from "node:fs";
+import { resolve } from "node:path";
 
-import { stepSummary } from './ci.js';
+import { stepSummary } from "./ci.js";
 
 export interface ToolVersions {
   erlang?: string;
@@ -26,24 +25,34 @@ export interface ToolVersions {
 }
 
 /** Parse asdf's `.tool-versions` (`<tool> <version>` per line). Missing file → {}. */
-export function readToolVersions(dir: string): ToolVersions {
-  const file = resolve(dir, '.tool-versions');
+function readToolVersions(dir: string): ToolVersions {
+  const file = resolve(dir, ".tool-versions");
   if (!existsSync(file)) return {};
   const pins: Record<string, string> = {};
-  for (const line of readFileSync(file, 'utf8').split('\n')) {
-    const [tool, version] = line.replace(/#.*/, '').trim().split(/\s+/);
+  for (const line of readFileSync(file, "utf8").split("\n")) {
+    const [tool, version] = line.replace(/#.*/, "").trim().split(/\s+/);
     if (tool && version) pins[tool] = version;
   }
   return pins;
 }
 
 /**
- * Run a command from inside the checkout — that's where asdf resolves shims
- * from `.tool-versions`. Returns stdout, or the failure text when it can't run.
+ * Run a command with `dir` as its working directory: asdf's shims read the
+ * nearest `.tool-versions` from the current directory, so this is what makes
+ * the command see the checkout's pin instead of whatever's active elsewhere.
+ * Returns stdout, or the failure text when the command can't run.
  */
-function probe(dir: string, cmd: string, args: string[]): { ok: true; out: string } | { ok: false; error: string } {
+function probe(
+  dir: string,
+  cmd: string,
+  args: string[],
+): { ok: true; out: string } | { ok: false; error: string } {
   try {
-    const out = execFileSync(cmd, args, { cwd: dir, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+    const out = execFileSync(cmd, args, {
+      cwd: dir,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+    });
     return { ok: true, out: out.trim() };
   } catch (e) {
     const err = e as { stderr?: string; message: string };
@@ -66,33 +75,47 @@ export function checkToolchain(dir: string, label: string): void {
   const problems: string[] = [];
 
   if (pins.erlang) {
-    const erl = probe(dir, 'erl', ['-noshell', '-eval', OTP_VERSION_EVAL]);
+    const erl = probe(dir, "erl", ["-noshell", "-eval", OTP_VERSION_EVAL]);
     if (!erl.ok) {
-      problems.push(`erlang ${pins.erlang} pinned, but \`erl\` won't run here:\n    ${erl.error.split('\n').join('\n    ')}`);
+      problems.push(
+        `erlang ${pins.erlang} pinned, but \`erl\` won't run here:\n    ${erl.error.split("\n").join("\n    ")}`,
+      );
     } else if (erl.out !== pins.erlang) {
-      problems.push(`erlang ${pins.erlang} pinned, but \`erl\` here is ${erl.out}`);
+      problems.push(
+        `erlang ${pins.erlang} pinned, but \`erl\` here is ${erl.out}`,
+      );
     }
   }
 
   if (pins.elixir) {
     // "1.18.4-otp-28" → version 1.18.4 built for OTP 28.
-    const [wantVersion, wantOtp] = pins.elixir.split('-otp-');
-    const elixir = probe(dir, 'elixir', ['--version']);
-    const match = elixir.ok ? elixir.out.match(/Elixir (\S+) \(compiled with Erlang\/OTP (\d+)\)/) : null;
+    const [wantVersion, wantOtp] = pins.elixir.split("-otp-");
+    const elixir = probe(dir, "elixir", ["--version"]);
+    const match = elixir.ok
+      ? elixir.out.match(/Elixir (\S+) \(compiled with Erlang\/OTP (\d+)\)/)
+      : null;
     if (!elixir.ok) {
-      problems.push(`elixir ${pins.elixir} pinned, but \`elixir\` won't run here:\n    ${elixir.error.split('\n').join('\n    ')}`);
+      problems.push(
+        `elixir ${pins.elixir} pinned, but \`elixir\` won't run here:\n    ${elixir.error.split("\n").join("\n    ")}`,
+      );
     } else if (!match) {
-      problems.push(`elixir ${pins.elixir} pinned, but couldn't read the version from: ${elixir.out}`);
+      problems.push(
+        `elixir ${pins.elixir} pinned, but couldn't read the version from: ${elixir.out}`,
+      );
     } else if (match[1] !== wantVersion || (wantOtp && match[2] !== wantOtp)) {
-      problems.push(`elixir ${pins.elixir} pinned, but \`elixir\` here is ${match[1]} (compiled for OTP ${match[2]})`);
+      problems.push(
+        `elixir ${pins.elixir} pinned, but \`elixir\` here is ${match[1]} (compiled for OTP ${match[2]})`,
+      );
     }
   }
 
   if (pins.nodejs) {
-    const node = probe(dir, 'node', ['--version']);
-    const have = node.ok ? node.out.replace(/^v/, '') : undefined;
-    if (have && have.split('.')[0] !== pins.nodejs.split('.')[0]) {
-      console.warn(`[harness] note: ${label} pins nodejs ${pins.nodejs}; using ${have} (usually fine)`);
+    const node = probe(dir, "node", ["--version"]);
+    const have = node.ok ? node.out.replace(/^v/, "") : undefined;
+    if (have && have.split(".")[0] !== pins.nodejs.split(".")[0]) {
+      console.warn(
+        `[harness] note: ${label} pins nodejs ${pins.nodejs}; using ${have} (usually fine)`,
+      );
     }
   }
 
@@ -100,7 +123,7 @@ export function checkToolchain(dir: string, label: string): void {
 
   const message =
     `${label} pins a toolchain (.tool-versions) this host doesn't provide:\n` +
-    problems.map(p => `  - ${p}`).join('\n') +
+    problems.map((p) => `  - ${p}`).join("\n") +
     `\n\nFix: \`asdf install\` inside ${dir} (or asdf install erlang/elixir <version>).` +
     `\nIn CI, use erlef/setup-beam with \`version-file: <checkout>/.tool-versions\` and \`version-type: strict\`.`;
   stepSummary(`Toolchain mismatch for ${label}`, message);
