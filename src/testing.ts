@@ -20,6 +20,7 @@ import { beforeAll } from 'vitest';
 import {
   LightningClient,
   type LogLine,
+  type RunAttributes,
   type WebhookResponse,
   type WorkOrderState,
 } from './clients/lightning.js';
@@ -34,6 +35,11 @@ export interface Run {
   workflow: string;
   /** Terminal state: 'success', 'failed', 'crashed', … */
   state: WorkOrderState;
+  /**
+   * The run itself, as Lightning stored it: its state and the `error_type`
+   * the worker reported (e.g. `JobError`, `TimeoutError`; null on success).
+   */
+  run: RunAttributes;
   /**
    * The HTTP response to the webhook POST that started this run. For an
    * async trigger that's `{work_order_id}`, sent before the run starts; for a
@@ -51,7 +57,12 @@ export interface WorkflowHandle {
    * order to settle. Resolves for *any* terminal state — assert which one you
    * expected with `toSucceed()` / `toFailRun()`, or inspect `run.response`.
    */
-  trigger(payload?: unknown): Promise<Run>;
+  trigger(payload?: unknown, options?: TriggerOptions): Promise<Run>;
+}
+
+export interface TriggerOptions {
+  /** How long to wait for the work order to settle (default 90s). */
+  timeoutMs?: number;
 }
 
 export interface Lightning {
@@ -88,7 +99,7 @@ function build(manifest: Manifest): Lightning {
       const wf = workflow(manifest, name);
       const project = projectOf(manifest, name);
       return {
-        async trigger(payload: unknown = {}): Promise<Run> {
+        async trigger(payload: unknown = {}, options: TriggerOptions = {}): Promise<Run> {
           const path = webhookPath(wf);
           // Taken before the POST, with a second of clock skew, so a reply
           // with no body can still be matched to the work order it created
@@ -98,11 +109,13 @@ function build(manifest: Manifest): Lightning {
           const id =
             workOrderId(response) ??
             (await newestWorkOrder(client, project.id, since, path, response));
-          const state = await client.waitForWorkOrder(id);
+          const state = await client.waitForWorkOrder(id, options);
+          const run = await client.getRun(id);
           return {
             id,
             workflow: name,
             state,
+            run,
             response,
             logs: () => client.getLogLines(id),
           };

@@ -94,6 +94,11 @@ match the checkout's `.tool-versions` and fails with an install hint if not —
 rather than three steps later with `mix` exiting 126. Node is only advisory
 (a major-version skew works fine).
 
+The harness also sets Lightning's `WORKER_MAX_RUN_DURATION_SECONDS` to **60**
+(Lightning's own default is 300), so tests that need a run to hit its timeout
+don't take five minutes. Override with `HARNESS_RUN_TIMEOUT_SECONDS`; keep it
+above the longest legitimately-slow job in the suites.
+
 ## Running in CI
 
 [`test-lightning-branch.yml`](.github/workflows/test-lightning-branch.yml) is a

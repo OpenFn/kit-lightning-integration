@@ -37,6 +37,9 @@ export const WORKER_PORT = process.env.WORKER_PORT ?? '2222';
 const DATABASE_URL =
   process.env.DATABASE_URL ?? 'postgres://postgres:postgres@localhost/lightning_integration_e2e';
 const HEALTH_TIMEOUT_MS = Number(process.env.HARNESS_BOOT_TIMEOUT_MS ?? 600_000);
+// Per-run timeout handed to Lightning (see lightningEnv). Exported so tests
+// that need to outlive it know how long that is.
+export const RUN_TIMEOUT_SECONDS = process.env.HARNESS_RUN_TIMEOUT_SECONDS ?? '60';
 
 // Shared secret for the /worker channel, pinned on BOTH processes: a checkout
 // may carry a .env that overrides Lightning's dev default, so relying on
@@ -72,6 +75,11 @@ function lightningEnv(): NodeJS.ProcessEnv {
     // Defaults on in dev and binds its own port (4007) — a collision with any
     // other Lightning on the machine takes the whole VM down mid-run.
     LIVE_DEBUGGER: 'false',
+    // Becomes every run's `run_timeout_ms`, which the worker enforces (a run
+    // over it is killed). Lightning's default is 300s; tests that provoke the
+    // timeout would take five minutes each, so the harness shortens it. Must
+    // stay above the longest legitimately-slow job in the suites.
+    WORKER_MAX_RUN_DURATION_SECONDS: RUN_TIMEOUT_SECONDS,
   };
 }
 

@@ -43,6 +43,19 @@ export interface WebhookResponse {
   body: unknown;
 }
 
+/**
+ * A run as the JSON API shows it. `state` is the worker's exit reason mapped
+ * onto Lightning's vocabulary (fail → failed, crash → crashed, kill → killed,
+ * exception → exception); `error_type` is the error class the worker named.
+ */
+export interface RunAttributes {
+  id: string;
+  state: WorkOrderState;
+  error_type: string | null;
+  started_at: string | null;
+  finished_at: string | null;
+}
+
 /** A line of job/runtime output, as Lightning recorded it. */
 export interface LogLine {
   source: string;
@@ -104,6 +117,19 @@ export class LightningClient {
     return json.data
       .map(d => ({ id: d.id, inserted_at: d.attributes.inserted_at }))
       .sort((a, b) => b.inserted_at.localeCompare(a.inserted_at));
+  }
+
+  /**
+   * The run behind a work order: its own state plus the `error_type` the
+   * worker reported on `run:complete` (null on success). A webhook work order
+   * has exactly one run unless it's been retried.
+   */
+  async getRun(workOrderId: string): Promise<RunAttributes> {
+    const res = await this.api(`/api/runs?work_order_id=${workOrderId}`);
+    const json = (await res.json()) as { data: { id: string; attributes: Omit<RunAttributes, 'id'> }[] };
+    const [run] = json.data;
+    if (!run) throw new Error(`No run found for work order ${workOrderId}`);
+    return { id: run.id, ...run.attributes };
   }
 
   async getWorkOrderState(id: string): Promise<WorkOrderState> {

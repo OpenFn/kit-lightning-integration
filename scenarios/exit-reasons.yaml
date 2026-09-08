@@ -1,0 +1,112 @@
+# Exit reasons: one workflow per way a run can end. Each job body is the
+# smallest thing that makes the worker report that reason on `run:complete`;
+# tests/lightning-worker/exit-reasons.spec.ts asserts what Lightning stores.
+#
+# Own project so kickstart's convergence (which deletes workflows a scenario
+# stopped declaring) can't interfere with other scenarios' fixtures.
+
+users:
+  - email: harness@openfn.org
+    first_name: Harry
+    last_name: Harness
+    api_token: true
+
+projects:
+  - name: exit-reasons
+    members:
+      - { email: harness@openfn.org, role: owner }
+    workflows:
+      - name: Exit Success
+        triggers:
+          webhook: { type: webhook, enabled: true }
+        jobs:
+          ok:
+            name: OK
+            adaptor: "@openfn/language-common@latest"
+            body: |
+              fn(state => state);
+        edges:
+          webhook->ok:
+            { source_trigger: webhook, target_job: ok, condition_type: always, enabled: true }
+
+      # A thrown Error is a job failure: the worker wraps it as JobError.
+      - name: Exit Fail
+        triggers:
+          webhook: { type: webhook, enabled: true }
+        jobs:
+          throw:
+            name: Throw
+            adaptor: "@openfn/language-common@latest"
+            body: |
+              fn(() => { throw new Error('kaboom from the job'); });
+        edges:
+          webhook->throw:
+            { source_trigger: webhook, target_job: throw, condition_type: always, enabled: true }
+
+      # A TypeError inside the job is also a failure, reported as RuntimeError.
+      - name: Exit Fail Runtime
+        triggers:
+          webhook: { type: webhook, enabled: true }
+        jobs:
+          type-error:
+            name: Type Error
+            adaptor: "@openfn/language-common@latest"
+            body: |
+              fn(state => { state.data = state.data.missing.field; return state; });
+        edges:
+          webhook->type-error:
+            { source_trigger: webhook, target_job: type-error, condition_type: always, enabled: true }
+
+      # A ReferenceError is a crash: the runtime treats it as a programming
+      # error that aborts the whole run rather than a failure it can record.
+      - name: Exit Crash
+        triggers:
+          webhook: { type: webhook, enabled: true }
+        jobs:
+          reference-error:
+            name: Reference Error
+            adaptor: "@openfn/language-common@latest"
+            body: |
+              fn(() => notDefinedAnywhere);
+        edges:
+          webhook->reference-error:
+            { source_trigger: webhook, target_job: reference-error, condition_type: always, enabled: true }
+
+      # Never returns; the worker kills it when the run's `run_timeout_ms`
+      # (from Lightning's WORKER_MAX_RUN_DURATION_SECONDS) elapses.
+      - name: Exit Kill Timeout
+        triggers:
+          webhook: { type: webhook, enabled: true }
+        jobs:
+          spin:
+            name: Spin
+            adaptor: "@openfn/language-common@latest"
+            body: |
+              fn(state => { while (true) {} });
+        edges:
+          webhook->spin:
+            { source_trigger: webhook, target_job: spin, condition_type: always, enabled: true }
+
+      # Allocates until the job process exceeds the worker's memory limit
+      # (--run-memory, 500MB by default) and is killed. (No numeric separators:
+      # the runtime's compiler rejects `1_000_000` as a syntax error.)
+      - name: Exit Kill OOM
+        triggers:
+          webhook: { type: webhook, enabled: true }
+        jobs:
+          allocate:
+            name: Allocate
+            adaptor: "@openfn/language-common@latest"
+            body: |
+              fn(state => {
+                const hoard = [];
+                while (true) hoard.push(new Array(1000000).fill(Math.random()));
+              });
+        edges:
+          webhook->allocate:
+            { source_trigger: webhook, target_job: allocate, condition_type: always, enabled: true }
+
+      # No `exception` workflow: the recipe is an adaptor version that won't
+      # install, but kickstart runs without Lightning's AdaptorRegistry and
+      # any adaptor other than the schema default fails validation. See the
+      # skipped test in exit-reasons.spec.ts.
