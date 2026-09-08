@@ -1,6 +1,6 @@
 import { describe, it } from 'vitest';
 
-import { useScenario } from '../src/testing.js';
+import { useScenario } from '../../src/testing.js';
 
 /**
  * The end-to-end contract: a webhook payload flows Lightning -> /worker channel

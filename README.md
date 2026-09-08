@@ -148,8 +148,9 @@ expected work order to succeed, got "failed"
 Need more than pass/fail? `await run.logs()` returns the lines, and
 `lightning.client` is the raw HTTP client. Note that a job's *output data*
 isn't reachable this way — Lightning only exposes dataclips to a logged-in
-browser session — so assert on what the job logs, or (once sync webhooks land)
-on the webhook's response body.
+browser session — so assert on what the job logs — or, for a trigger with
+`webhook_reply: after_completion`, on `run.response`: the HTTP status and body
+Lightning sent back once the run finished.
 
 ## Test data
 
@@ -203,5 +204,5 @@ src/clients/lightning.ts  typed TS wrapper around a running Lightning
 src/globalSetup.ts      vitest wiring: up before the suite, down after
 scenarios/*.yaml        declarative kickstart scenarios
 tests/matchers.ts       toSucceed() / toFailRun(), with log-reporting failures
-tests/*.spec.ts         the e2e suites
+tests/<boundary>/*.spec.ts  the e2e suites, one dir per component pair (see tests/README.md)
 ```
