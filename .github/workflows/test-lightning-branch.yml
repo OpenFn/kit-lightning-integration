@@ -59,10 +59,10 @@ jobs:
           --health-retries 20
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Checkout Lightning @ ${{ inputs.lightning_ref }}
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: ${{ inputs.lightning_repo || 'OpenFn/lightning' }}
           ref: ${{ inputs.lightning_ref }}
@@ -77,14 +77,14 @@ jobs:
 
       # Node runs Lightning's assets and the worker under test — again from
       # the checkout's pin. bun runs the harness itself.
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version-file: .cache/lightning/.tool-versions
 
       - uses: oven-sh/setup-bun@v2
 
       # For worker-from-kit-checkout specs; harmless otherwise.
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         with:
           version: 10
 
@@ -102,7 +102,7 @@ jobs:
 
       - name: Upload stack logs
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: stack-logs
           path: |
