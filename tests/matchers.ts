@@ -4,11 +4,13 @@
  *
  * The point of these is the failure message: a run that didn't do what the
  * test expected prints its exit state *and its logs* right there, instead of
- * `expected 'failed' to be 'success'` and a trip to tmp/worker.log.
+ * `expected 'failed' to be 'success'` and a trip to tmp/worker.log. In CI the
+ * same text lands on the job summary page.
  */
 
 import { expect } from 'vitest';
 
+import { stepSummary } from '../src/ci.js';
 import type { Run } from '../src/testing.js';
 
 /**
@@ -25,6 +27,13 @@ function format(run: Run, lines: { source: string; message: string }[]): string 
   return `  workflow  ${run.workflow}\n  work order  ${run.id}\n  logs\n${logs}`;
 }
 
+/** Build the failure message and mirror it to the CI summary. */
+async function failure(run: Run, headline: string): Promise<string> {
+  const message = `${headline}\n${format(run, await run.logs())}`;
+  stepSummary(`Run failed: ${run.workflow}`, message);
+  return message;
+}
+
 expect.extend({
   /** Asserts the run reached `success`, reporting its logs if it didn't. */
   async toSucceed(received: Run | Promise<Run>) {
@@ -35,11 +44,8 @@ expect.extend({
         message: () => `expected work order not to succeed, but it did (${run.id})`,
       };
     }
-    const details = format(run, await run.logs());
-    return {
-      pass: false,
-      message: () => `expected work order to succeed, got "${run.state}"\n${details}`,
-    };
+    const message = await failure(run, `expected work order to succeed, got "${run.state}"`);
+    return { pass: false, message: () => message };
   },
 
   /**
@@ -56,11 +62,8 @@ expect.extend({
       };
     }
     const wanted = expectedState ?? 'a failure';
-    const details = format(run, await run.logs());
-    return {
-      pass: false,
-      message: () => `expected work order to be ${wanted}, got "${run.state}"\n${details}`,
-    };
+    const message = await failure(run, `expected work order to be ${wanted}, got "${run.state}"`);
+    return { pass: false, message: () => message };
   },
 });
 
