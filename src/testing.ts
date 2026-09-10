@@ -63,6 +63,8 @@ export interface WorkflowHandle {
 export interface TriggerOptions {
   /** How long to wait for the work order to settle (default 90s). */
   timeoutMs?: number;
+  /** Appended to the webhook URL, so a test can assert on `state.request.query_params`. */
+  query?: Record<string, string>;
 }
 
 export interface Lightning {
@@ -100,7 +102,8 @@ function build(manifest: Manifest): Lightning {
       const project = projectOf(manifest, name);
       return {
         async trigger(payload: unknown = {}, options: TriggerOptions = {}): Promise<Run> {
-          const path = webhookPath(wf);
+          const base = webhookPath(wf);
+          const path = options.query ? `${base}?${new URLSearchParams(options.query)}` : base;
           // Taken before the POST, with a second of clock skew, so a reply
           // with no body can still be matched to the work order it created
           // (see newestWorkOrder).

@@ -1,0 +1,75 @@
+# Dataclip shapes: what a job actually receives as `state`, and what happens
+# when a step's output is too big to send back to Lightning. See
+# tests/lightning-worker/dataclip-shapes.spec.ts for what each asserts.
+#
+# Own project so kickstart's convergence (which deletes workflows a scenario
+# stopped declaring) can't interfere with other scenarios' fixtures.
+
+users:
+  - email: harness@openfn.org
+    first_name: Harry
+    last_name: Harness
+    api_token: true
+
+projects:
+  - name: dataclip-shapes
+    members:
+      - { email: harness@openfn.org, role: owner }
+    workflows:
+      # A webhook dataclip is stored as {body, request}; Lightning nests it as
+      # {data: body, request: {...}} for the job. Passthrough job + sync reply
+      # exposes exactly what the worker received.
+      - name: Webhook Input Shape
+        triggers:
+          webhook:
+            type: webhook
+            enabled: true
+            webhook_reply: after_completion
+        jobs:
+          passthrough:
+            name: Passthrough
+            adaptor: "@openfn/language-common@latest"
+            body: |
+              fn(state => state);
+        edges:
+          webhook->passthrough:
+            source_trigger: webhook
+            target_job: passthrough
+            condition_type: always
+            enabled: true
+
+      # produce-large's output exceeds the worker's payload limit (10MB
+      # default). The redaction happens at the worker-thread boundary, before
+      # the event reaches Lightning or the next job: `data` is replaced with
+      # the literal string '[REDACTED]' in the one state object both see.
+      # check-size runs anyway (the run doesn't fail over this) but receives
+      # that placeholder, not the real value — see the spec file for why this
+      # is worth pinning explicitly rather than assumed.
+      - name: Oversized Step Output
+        triggers:
+          webhook:
+            type: webhook
+            enabled: true
+            webhook_reply: after_completion
+        jobs:
+          produce-large:
+            name: Produce Large
+            adaptor: "@openfn/language-common@latest"
+            body: |
+              fn(state => ({ ...state, data: { blob: 'x'.repeat(11 * 1024 * 1024) } }));
+          check-size:
+            name: Check Size
+            adaptor: "@openfn/language-common@latest"
+            body: |
+              fn(state => ({ ...state, data: { sawRedactedPlaceholder: state.data === '[REDACTED]' } }));
+        edges:
+          webhook->produce-large:
+            source_trigger: webhook
+            target_job: produce-large
+            condition_type: always
+            enabled: true
+          produce-large->check-size:
+            source_job: produce-large
+            target_job: check-size
+            condition_type: always
+            enabled: true
