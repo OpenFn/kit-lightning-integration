@@ -28,17 +28,6 @@ import { useScenario } from '../../src/testing.js';
  * `step-complete.ts` comment ("the workflow will carry on internally"): the
  * run does carry on, but the next job gets the placeholder, not the real
  * value the comment might imply survives.
- *
- * Not covered: the "null" reply for an already-wiped dataclip. It only shows
- * up on a *second* read of the same input dataclip — the first read still
- * returns the real body, even for an `erase_all` project — and the only
- * routes that produce a second read (retry, manual run creation) are mounted
- * under `pipe_through [:browser, :require_authenticated_user]` in Lightning's
- * router: cookie-session auth, unreachable from this harness's Bearer-token
- * client (src/clients/lightning.ts) without adding a second auth mode.
- * Separately, kickstart's project schema (`@project_keys` in
- * lib/lightning/kickstart.ex) has no `retention_policy` key, so an
- * `erase_all` project can't even be seeded through it.
  */
 
 interface SyncReply {
