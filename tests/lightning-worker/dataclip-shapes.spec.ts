@@ -21,25 +21,24 @@ import { useScenario } from '../../src/testing.js';
  * the withheld reason (`CompleteStep`'s schema doesn't cast
  * `output_dataclip_error`); it just accepts a step with no output.
  *
- * The redaction happens earlier and more bluntly than that step-complete
- * comment ("the workflow will carry on internally") suggests: it's applied
- * in the worker thread, to the one state object that both the Lightning wire
- * event *and* the next job's input alias — `data` is `Object.assign`-replaced
- * with the literal string `'[REDACTED]'`. The run does carry on, but the
- * next job sees the placeholder, not the real value.
+ * The redaction is applied in the worker thread, to the one state object
+ * that both the Lightning wire event *and* the next job's input alias —
+ * `data` is `Object.assign`-replaced with the literal string `'[REDACTED]'`
+ * before either side sees it. Note this for anyone reading kit's own
+ * `step-complete.ts` comment ("the workflow will carry on internally"): the
+ * run does carry on, but the next job gets the placeholder, not the real
+ * value the comment might imply survives.
  *
- * Not covered: the "null" reply for an already-wiped dataclip. That only
- * shows up on a *second* read of the same input dataclip (the first read
- * still returns the real body, even for an `erase_all` project) — reachable
- * only via the retry or manual-run-creation endpoints, both mounted under
- * `pipe_through [:browser, :require_authenticated_user]` in Lightning's
- * router, i.e. cookie-session auth, never a Bearer token. This harness talks
- * to Lightning as a black-box API client on purpose (see
- * src/clients/lightning.ts); reaching this path would mean adding session
- * auth for one test. Separately, kickstart's own project schema
- * (`@project_keys` in lib/lightning/kickstart.ex) has no `retention_policy`
- * key, so an `erase_all` project can't even be seeded. Both are Lightning-side
- * gaps, not asserted here.
+ * Not covered: the "null" reply for an already-wiped dataclip. It only shows
+ * up on a *second* read of the same input dataclip — the first read still
+ * returns the real body, even for an `erase_all` project — and the only
+ * routes that produce a second read (retry, manual run creation) are mounted
+ * under `pipe_through [:browser, :require_authenticated_user]` in Lightning's
+ * router: cookie-session auth, unreachable from this harness's Bearer-token
+ * client (src/clients/lightning.ts) without adding a second auth mode.
+ * Separately, kickstart's project schema (`@project_keys` in
+ * lib/lightning/kickstart.ex) has no `retention_policy` key, so an
+ * `erase_all` project can't even be seeded through it.
  */
 
 interface SyncReply {

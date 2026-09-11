@@ -43,8 +43,7 @@ projects:
       # the event reaches Lightning or the next job: `data` is replaced with
       # the literal string '[REDACTED]' in the one state object both see.
       # check-size runs anyway (the run doesn't fail over this) but receives
-      # that placeholder, not the real value — see the spec file for why this
-      # is worth pinning explicitly rather than assumed.
+      # that placeholder, not the real value.
       - name: Oversized Step Output
         triggers:
           webhook:
