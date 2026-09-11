@@ -1,0 +1,123 @@
+# Composite action: run the Lightning <-> ws-worker contract suite against a
+# chosen Lightning and worker, on the caller's runner.
+#
+# Meant to be used from Lightning's and kit's own CI, where the repo under test
+# is already checked out — pass its path and the suite runs against that exact
+# commit, so a breaking change shows up on the PR that introduced it:
+#
+#   # in OpenFn/lightning
+#   - uses: actions/checkout@v4
+#   - uses: OpenFn/kit-lightning-integration@v1
+#     with:
+#       lightning: ${{ github.workspace }}
+#
+#   # in OpenFn/kit
+#   - uses: actions/checkout@v4
+#   - uses: OpenFn/kit-lightning-integration@v1
+#     with:
+#       worker: ${{ github.workspace }}
+#
+# The caller's job must provide Postgres (a `services: postgres` block — an
+# action can't declare services) and run on Linux (libsodium via apt).
+#
+# Erlang/Elixir/node are installed at whatever the Lightning checkout pins in
+# its .tool-versions; nothing is hardcoded here.
+
+name: Lightning <-> worker contract tests
+description: Boots a real Lightning and a real @openfn/ws-worker on the runner and runs the contract suite against the pair.
+
+inputs:
+  lightning:
+    description: >-
+      Lightning to test: a checkout path (e.g. ${{ github.workspace }}), a
+      branch/tag/full SHA on OpenFn/lightning, or owner/repo#ref.
+    required: false
+    default: main
+  worker:
+    description: >-
+      Worker to test: a published @openfn/ws-worker version (latest, 1.14.1),
+      a kit checkout path, a branch/tag/full SHA on OpenFn/kit, or owner/repo#ref.
+    required: false
+    default: latest
+  database-url:
+    description: >-
+      Postgres the harness may create and drop its own database in. The caller
+      provides the server.
+    required: false
+    default: postgres://postgres:postgres@localhost/lightning_integration_e2e
+  artifact-name:
+    description: Name for the uploaded stack logs (make it unique in a matrix).
+    required: false
+    default: contract-test-logs
+
+runs:
+  using: composite
+  steps:
+    # bun runs the harness itself — needed first, to resolve the Lightning spec.
+    - uses: oven-sh/setup-bun@v2
+
+    - name: Install the harness
+      shell: bash
+      working-directory: ${{ github.action_path }}
+      run: bun install --frozen-lockfile
+
+    - name: Resolve the Lightning checkout
+      id: lightning
+      shell: bash
+      working-directory: ${{ github.action_path }}
+      run: |
+        dir=$(bun src/cli.ts resolve --lightning "$LIGHTNING" --worker "$WORKER" | jq -r '.lightning.dir')
+        echo "dir=$dir" >> "$GITHUB_OUTPUT"
+        echo "Lightning checkout: $dir"
+      env:
+        LIGHTNING: ${{ inputs.lightning }}
+        WORKER: ${{ inputs.worker }}
+
+    - uses: erlef/setup-beam@v1
+      with:
+        version-file: ${{ steps.lightning.outputs.dir }}/.tool-versions
+        version-type: strict
+
+    # Node runs Lightning's assets and the worker under test — again from the
+    # checkout's pin.
+    - uses: actions/setup-node@v4
+      with:
+        node-version-file: ${{ steps.lightning.outputs.dir }}/.tool-versions
+
+    - uses: pnpm/action-setup@v4
+      with:
+        version: 10
+
+    - name: Install system deps
+      if: runner.os == 'Linux'
+      shell: bash
+      run: sudo apt-get update -q && sudo apt-get install -y -q libsodium-dev
+
+    - name: Run the contract suite
+      shell: bash
+      working-directory: ${{ github.action_path }}
+      run: bun run test
+      env:
+        LIGHTNING: ${{ inputs.lightning }}
+        WORKER: ${{ inputs.worker }}
+        DATABASE_URL: ${{ inputs.database-url }}
+        KEEP_STACK: '1'
+
+    - name: Upload stack logs
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ inputs.artifact-name }}
+        path: |
+          ${{ github.action_path }}/tmp/lightning.log
+          ${{ github.action_path }}/tmp/worker.log
+          ${{ github.action_path }}/tmp/prep.log
+        if-no-files-found: ignore
+
+    - name: Stop the stack
+      if: always()
+      shell: bash
+      working-directory: ${{ github.action_path }}
+      run: bun run down || true
+      env:
+        DATABASE_URL: ${{ inputs.database-url }}

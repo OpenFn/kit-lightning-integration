@@ -115,6 +115,36 @@ Failures land on the run's summary page (the failing run's log tail, or the
 toolchain mismatch), and `tmp/*.log` are uploaded as an artifact. Nothing is
 cached yet, so a run compiles Lightning from scratch.
 
+### Using it from another repo
+
+The workflow above is a thin wrapper around [`action.yml`](action.yml), a
+composite action any repo can call. Lightning and kit use it to run the suite
+against the exact commit their CI has checked out, so a breaking change shows
+up on the PR that introduced it:
+
+```yaml
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env: { POSTGRES_USER: postgres, POSTGRES_PASSWORD: postgres }
+        ports: ['5432:5432']
+        options: --health-cmd "pg_isready -U postgres" --health-interval 5s --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: OpenFn/kit-lightning-integration@v1
+        with:
+          lightning: ${{ github.workspace }}   # in Lightning's CI; kit passes `worker:` instead
+```
+
+`lightning` and `worker` take the same specs as the CLI (a checkout path, a
+ref, `owner/repo#ref`, or a published version for the worker). The caller
+provides Postgres — an action can't declare services — and runs on Linux.
+Pin a tag (`@v1`), not `@main`, so a harness change can't break your CI
+unannounced.
+
 ## Writing tests
 
 A test names the scenario it needs, triggers a workflow, and asserts on the

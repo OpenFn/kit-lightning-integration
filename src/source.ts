@@ -72,7 +72,8 @@ function resolveRepoSource(spec: string, root: string, opts: RepoOptions): Check
   mkdirSync(dir, { recursive: true });
   if (!existsSync(resolve(dir, '.git'))) git(dir, 'init', '--quiet');
 
-  console.log(`[harness] fetching ${repo}@${ref}…`);
+  // stderr: `stack resolve` prints machine-readable JSON on stdout.
+  console.error(`[harness] fetching ${repo}@${ref}…`);
   try {
     git(dir, 'fetch', '--depth', '1', '--quiet', url, ref);
   } catch {
