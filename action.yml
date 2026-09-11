@@ -29,7 +29,7 @@ description: Boots a real Lightning and a real @openfn/ws-worker on the runner a
 inputs:
   lightning:
     description: >-
-      Lightning to test: a checkout path (e.g. ${{ github.workspace }}), a
+      Lightning to test: a checkout path, a
       branch/tag/full SHA on OpenFn/lightning, or owner/repo#ref.
     required: false
     default: main
