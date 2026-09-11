@@ -3,31 +3,15 @@ import { describe, expect, it } from 'vitest';
 import { useScenario } from '../../src/testing.js';
 
 /**
- * Dataclip shapes: what a job actually receives as `state`, and what happens
- * when a step's output is too big to hand back to Lightning.
+ * What a job receives as `state`, and what happens when a step's output is
+ * too big to hand back to Lightning (`Runs.get_input/1`;
+ * `engine-multi/util/ensure-payload-size.ts` + `ws-worker/step-complete.ts`).
  *
- * Input nesting (Lightning, `Runs.get_input/1`): a webhook dataclip is stored
- * as separate `body`/`request` columns; the CASE in that query nests them as
- * `{data: body, request: {headers, method, path, query_params}}` before
- * sending it to the worker as the job's initial state. Non-webhook dataclip
- * types get the bare body instead — not covered here, this suite is about
- * the webhook boundary specifically.
- *
- * Oversized output (kit, `engine-multi/util/ensure-payload-size.ts` +
- * `ws-worker/events/step-complete.ts`): a step's output over the worker's
- * payload limit (`--payload-memory`, 10MB default) is withheld from the
- * `step:complete` event Lightning sees (`output_dataclip_error:
- * "DATACLIP_TOO_LARGE"`, no `output_dataclip_id`). Lightning has no field for
- * the withheld reason (`CompleteStep`'s schema doesn't cast
- * `output_dataclip_error`); it just accepts a step with no output.
- *
- * The redaction is applied in the worker thread, to the one state object
- * that both the Lightning wire event *and* the next job's input alias —
- * `data` is `Object.assign`-replaced with the literal string `'[REDACTED]'`
- * before either side sees it. Note this for anyone reading kit's own
- * `step-complete.ts` comment ("the workflow will carry on internally"): the
- * run does carry on, but the next job gets the placeholder, not the real
- * value the comment might imply survives.
+ * Redaction happens in the worker thread, mutating the one state object both
+ * the Lightning event and the next job's input alias — so despite
+ * `step-complete.ts`'s own comment ("the workflow will carry on
+ * internally"), the next job sees the `'[REDACTED]'` placeholder, not the
+ * real value.
  */
 
 interface SyncReply {
