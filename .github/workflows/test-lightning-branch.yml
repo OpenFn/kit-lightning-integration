@@ -1,13 +1,13 @@
 name: Test against a Lightning branch
 
-# Boots a real Lightning (built from the chosen ref) and a real ws-worker on
-# the runner, then runs the contract suite against the pair.
+# Runs the contract suite on a GitHub runner against any Lightning ref and any
+# worker, via the composite action in ./action.yml — the same action Lightning
+# and kit call from their own CI. This workflow is therefore also the test of
+# that action.
 #
 # The toolchain is *not* pinned here: Erlang/Elixir/node come from the
 # checkout's own .tool-versions, so a Lightning bump can't silently break this.
 
-# Shows which ref/worker each run tested in the Actions run list — otherwise
-# every dispatch looks identical until you open it.
 run-name: >-
   ${{ inputs.lightning_repo || 'OpenFn/lightning' }}@${{ inputs.lightning_ref || 'main' }}
   vs worker ${{ inputs.worker || 'latest' }}
@@ -37,12 +37,6 @@ jobs:
     name: Boot Lightning + worker, run the contract suite
     runs-on: ubuntu-latest
     timeout-minutes: 45
-    env:
-      # The harness always takes a local checkout path — the "Checkout Lightning"
-      # step below has already fetched the chosen ref there.
-      LIGHTNING: ${{ github.workspace }}/.cache/lightning
-      WORKER: ${{ inputs.worker || 'latest' }}
-      KEEP_STACK: "1" # leave the stack up so logs are intact for the upload step
 
     services:
       postgres:
@@ -61,56 +55,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Checkout Lightning @ ${{ inputs.lightning_ref }}
-        uses: actions/checkout@v7
-        with:
-          repository: ${{ inputs.lightning_repo || 'OpenFn/lightning' }}
-          ref: ${{ inputs.lightning_ref }}
-          path: .cache/lightning
-
-      # Erlang/Elixir exactly as the checkout pins them (setup-beam requires
-      # `strict` when reading from a file).
-      - uses: erlef/setup-beam@v1
-        with:
-          version-file: .cache/lightning/.tool-versions
-          version-type: strict
-
-      # Node runs Lightning's assets and the worker under test — again from
-      # the checkout's pin. bun runs the harness itself.
-      - uses: actions/setup-node@v7
-        with:
-          node-version-file: .cache/lightning/.tool-versions
-
-      - uses: oven-sh/setup-bun@v2
-
-      # For worker-from-kit-checkout specs; harmless otherwise.
-      - uses: pnpm/action-setup@v6
-        with:
-          version: 10
-
-      # Lightning's `enacl` builds from source and links libsodium.
-      - name: Install system deps
-        run: sudo apt-get update -q && sudo apt-get install -y -q libsodium-dev
-
-      - run: bun install
-
-      # Prepares the checkout (deps, assets, runtime, db), boots Lightning +
-      # worker, runs the suite. No caching yet, so this recompiles Lightning
-      # from scratch on every run.
       - name: Run integration tests
-        run: bun run test
-
-      - name: Upload stack logs
-        if: always()
-        uses: actions/upload-artifact@v7
+        uses: ./
         with:
-          name: stack-logs
-          path: |
-            tmp/lightning.log
-            tmp/worker.log
-            tmp/prep.log
-          if-no-files-found: ignore
-
-      - name: Stop the stack
-        if: always()
-        run: bun run down || true
+          lightning: ${{ inputs.lightning_repo || 'OpenFn/lightning' }}#${{ inputs.lightning_ref || 'main' }}
+          worker: ${{ inputs.worker || 'latest' }}

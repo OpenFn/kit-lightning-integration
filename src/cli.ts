@@ -4,10 +4,15 @@
  *   bun run stack up [--lightning <spec>] [--worker <spec>]
  *   bun run stack seed <scenario-path>
  *   bun run stack down
+ *   bun run stack resolve [--lightning <spec>] [--worker <spec>]
  *
  * Flags fall back to $LIGHTNING / $WORKER, then OpenFn/lightning@main and
  * @openfn/ws-worker@latest. `up` boots an empty stack; seeding is explicit —
  * tests seed the scenario they need, and `seed` does it by hand.
+ *
+ * `resolve` turns the specs into checkouts (cloning remote refs) without
+ * booting anything, and prints where they landed as JSON. CI uses it to find
+ * the Lightning checkout's `.tool-versions` before installing the toolchain.
  */
 
 import { parseArgs } from 'node:util';
@@ -20,6 +25,8 @@ const USAGE = `Usage:
   bun run stack up [--lightning <spec>] [--worker <spec>]
   bun run stack seed <scenario-path>  seed a scenario, print its manifest
   bun run stack down
+  bun run stack resolve [--lightning <spec>] [--worker <spec>]
+                                      fetch the checkouts, print their paths as JSON
 
 Lightning specs:
   main                        branch/tag/full SHA on OpenFn/lightning (default)
@@ -62,6 +69,12 @@ switch (command) {
   case 'down':
     await down();
     break;
+  case 'resolve': {
+    const lightning = resolveLightningSource(values.lightning, root);
+    const worker = resolveWorkerSource(values.worker, root);
+    console.log(JSON.stringify({ lightning, worker }, null, 2));
+    break;
+  }
   default:
     console.error(USAGE);
     process.exit(command ? 1 : 0);
