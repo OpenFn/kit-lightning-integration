@@ -11,6 +11,7 @@ tests/
     happy-path.spec.ts        webhook -> claim -> run -> success
     sync-webhook.spec.ts      after_completion triggers: the HTTP reply is built from run:complete
     exit-reasons.spec.ts      each worker exit reason → Lightning's stored state + error_type
+    dataclip-shapes.spec.ts   webhook input nesting; a withheld too-large step output
 ```
 
 Future boundaries get their own directory alongside (e.g. `lightning-cli/`
