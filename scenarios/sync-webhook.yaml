@@ -1,0 +1,164 @@
+# Synchronous webhooks: triggers with `webhook_reply: after_completion` hold the
+# HTTP request open until the run finishes and answer with its result. Each
+# workflow here isolates one branch of how that answer is built — see
+# tests/lightning-worker/sync-webhook.spec.ts for what each is asserting.
+#
+# Own project so kickstart's convergence (which deletes workflows a scenario
+# stopped declaring) can't interfere with other scenarios' fixtures.
+
+users:
+  - email: harness@openfn.org
+    first_name: Harry
+    last_name: Harness
+    api_token: true
+
+projects:
+  - name: sync-webhook
+    members:
+      - { email: harness@openfn.org, role: owner }
+    workflows:
+      # One leaf: the worker sends `final_dataclip_id` (plus `final_state`) and
+      # the reply body must still be the job's final state.
+      - name: Sync Single Leaf
+        triggers:
+          webhook:
+            type: webhook
+            enabled: true
+            webhook_reply: after_completion
+        jobs:
+          echo:
+            name: Echo
+            adaptor: "@openfn/language-common@latest"
+            body: |
+              fn(state => ({ ...state, data: { ...state.data, echoed: true } }));
+        edges:
+          webhook->echo:
+            source_trigger: webhook
+            target_job: echo
+            condition_type: always
+            enabled: true
+
+      # Two leaves: the worker sends a `final_state` map keyed by step id.
+      - name: Sync Multi Leaf
+        triggers:
+          webhook:
+            type: webhook
+            enabled: true
+            webhook_reply: after_completion
+        jobs:
+          leaf-a:
+            name: Leaf A
+            adaptor: "@openfn/language-common@latest"
+            body: |
+              fn(state => ({ ...state, data: { leaf: 'a' } }));
+          leaf-b:
+            name: Leaf B
+            adaptor: "@openfn/language-common@latest"
+            body: |
+              fn(state => ({ ...state, data: { leaf: 'b' } }));
+        edges:
+          webhook->leaf-a:
+            source_trigger: webhook
+            target_job: leaf-a
+            condition_type: always
+            enabled: true
+          webhook->leaf-b:
+            source_trigger: webhook
+            target_job: leaf-b
+            condition_type: always
+            enabled: true
+
+      # A job error: Lightning must not leak state in the reply.
+      - name: Sync Failing
+        triggers:
+          webhook:
+            type: webhook
+            enabled: true
+            webhook_reply: after_completion
+        jobs:
+          boom:
+            name: Boom
+            adaptor: "@openfn/language-common@latest"
+            body: |
+              fn(() => { throw new Error('kaboom from the job'); });
+        edges:
+          webhook->boom:
+            source_trigger: webhook
+            target_job: boom
+            condition_type: always
+            enabled: true
+
+      # Trigger-level status codes. The job fails when asked to, so one
+      # workflow covers both codes.
+      - name: Sync Custom Codes
+        triggers:
+          webhook:
+            type: webhook
+            enabled: true
+            webhook_reply: after_completion
+            webhook_response_config:
+              success_code: 200
+              error_code: 422
+        jobs:
+          maybe-fail:
+            name: Maybe Fail
+            adaptor: "@openfn/language-common@latest"
+            body: |
+              fn(state => {
+                if (state.data.fail) throw new Error('asked to fail');
+                return state;
+              });
+        edges:
+          webhook->maybe-fail:
+            source_trigger: webhook
+            target_job: maybe-fail
+            condition_type: always
+            enabled: true
+
+      # The job decides the reply itself via `state.webhookResponse`. The
+      # payload chooses status/body so one workflow covers the variants.
+      - name: Sync Job Response
+        triggers:
+          webhook:
+            type: webhook
+            enabled: true
+            webhook_reply: after_completion
+        jobs:
+          respond:
+            name: Respond
+            adaptor: "@openfn/language-common@latest"
+            body: |
+              fn(state => ({
+                ...state,
+                webhookResponse: state.data.webhookResponse,
+              }));
+        edges:
+          webhook->respond:
+            source_trigger: webhook
+            target_job: respond
+            condition_type: always
+            enabled: true
+
+      # Outlives Lightning's response timeout (30s by default). The run itself
+      # still completes; only the HTTP reply gives up.
+      - name: Sync Slow
+        triggers:
+          webhook:
+            type: webhook
+            enabled: true
+            webhook_reply: after_completion
+        jobs:
+          sleep:
+            name: Sleep
+            adaptor: "@openfn/language-common@latest"
+            body: |
+              fn(async state => {
+                await new Promise(r => setTimeout(r, state.data.sleep_ms));
+                return state;
+              });
+        edges:
+          webhook->sleep:
+            source_trigger: webhook
+            target_job: sleep
+            condition_type: always
+            enabled: true

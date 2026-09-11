@@ -17,8 +17,13 @@
 
 import { beforeAll } from 'vitest';
 
-import { LightningClient, type LogLine, type WorkOrderState } from './clients/lightning.js';
-import { apiToken, webhookPath, workflow, type Manifest } from './manifest.js';
+import {
+  LightningClient,
+  type LogLine,
+  type WebhookResponse,
+  type WorkOrderState,
+} from './clients/lightning.js';
+import { apiToken, projectOf, webhookPath, workflow, type Manifest } from './manifest.js';
 import { seedScenario } from './scenario.js';
 
 /** A work order that has settled, with the means to explain what happened. */
@@ -29,6 +34,13 @@ export interface Run {
   workflow: string;
   /** Terminal state: 'success', 'failed', 'crashed', … */
   state: WorkOrderState;
+  /**
+   * The HTTP response to the webhook POST that started this run. For an
+   * async trigger that's `{work_order_id}`, sent before the run starts; for a
+   * synchronous one (`webhook_reply: after_completion`) it's Lightning's reply
+   * once the run finished — status and `{data, meta}` body.
+   */
+  response: WebhookResponse;
   /** Everything the job and worker logged, fetched on demand. */
   logs(): Promise<LogLine[]>;
 }
@@ -37,7 +49,7 @@ export interface WorkflowHandle {
   /**
    * POST a payload to this workflow's webhook and wait for the resulting work
    * order to settle. Resolves for *any* terminal state — assert which one you
-   * expected with `toSucceed()` / `toFailRun()`.
+   * expected with `toSucceed()` / `toFailRun()`, or inspect `run.response`.
    */
   trigger(payload?: unknown): Promise<Run>;
 }
@@ -74,18 +86,59 @@ function build(manifest: Manifest): Lightning {
     manifest,
     workflow(name: string): WorkflowHandle {
       const wf = workflow(manifest, name);
+      const project = projectOf(manifest, name);
       return {
         async trigger(payload: unknown = {}): Promise<Run> {
-          const { work_order_id: id } = await client.triggerWebhook(webhookPath(wf), payload);
+          const path = webhookPath(wf);
+          // Taken before the POST, with a second of clock skew, so a reply
+          // with no body can still be matched to the work order it created
+          // (see newestWorkOrder).
+          const since = new Date(Date.now() - 1_000);
+          const response = await client.triggerWebhook(path, payload);
+          const id =
+            workOrderId(response) ??
+            (await newestWorkOrder(client, project.id, since, path, response));
           const state = await client.waitForWorkOrder(id);
           return {
             id,
             workflow: name,
             state,
+            response,
             logs: () => client.getLogLines(id),
           };
         },
       };
     },
   };
+}
+
+/**
+ * Every reply Lightning gives to a webhook POST carries the work order id
+ * somewhere: top-level for async triggers and timeouts, under `meta` for
+ * completed synchronous runs. Returns undefined when there's no body to read
+ * it from (a synchronous 204/304).
+ */
+function workOrderId(response: WebhookResponse): string | undefined {
+  const body = response.body as { work_order_id?: string; meta?: { work_order_id?: string } } | null;
+  return body?.work_order_id ?? body?.meta?.work_order_id;
+}
+
+/**
+ * Fall back to "the work order this project gained since the POST". Suites run
+ * serially and trigger one run at a time, so the newest one is the right one.
+ */
+async function newestWorkOrder(
+  client: LightningClient,
+  projectId: string,
+  since: Date,
+  path: string,
+  response: WebhookResponse,
+): Promise<string> {
+  const [latest] = await client.listWorkOrders(projectId, since);
+  if (!latest) {
+    throw new Error(
+      `Webhook ${path} returned ${response.status} with no work order id, and no work order appeared in the project: ${JSON.stringify(response.body)}`,
+    );
+  }
+  return latest.id;
 }

@@ -50,12 +50,21 @@ export function apiToken(manifest: Manifest): string {
 
 /** Find a workflow by name across all projects. */
 export function workflow(manifest: Manifest, name: string): ManifestWorkflow {
-  const all = manifest.projects.flatMap(p => p.workflows);
-  const found = all.find(w => w.name === name);
-  if (!found) {
-    throw new Error(`No workflow "${name}" in manifest. Available: ${all.map(w => w.name).join(', ')}`);
+  return locate(manifest, name).workflow;
+}
+
+/** The project that owns the named workflow. */
+export function projectOf(manifest: Manifest, workflowName: string): ManifestProject {
+  return locate(manifest, workflowName).project;
+}
+
+function locate(manifest: Manifest, name: string): { project: ManifestProject; workflow: ManifestWorkflow } {
+  for (const project of manifest.projects) {
+    const found = project.workflows.find(w => w.name === name);
+    if (found) return { project, workflow: found };
   }
-  return found;
+  const all = manifest.projects.flatMap(p => p.workflows.map(w => w.name));
+  throw new Error(`No workflow "${name}" in manifest. Available: ${all.join(', ')}`);
 }
 
 /** The webhook path of a workflow's webhook trigger. */
