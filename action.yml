@@ -67,7 +67,8 @@ runs:
       working-directory: ${{ github.action_path }}
       run: |
         dir=$(bun src/cli.ts resolve --lightning "$LIGHTNING" --worker "$WORKER" | jq -r '.lightning.dir')
-        echo "dir=$dir" >> "$GITHUB_OUTPUT"
+        echo "tool-versions=$(realpath --relative-to="$GITHUB_WORKSPACE" "$dir/.tool-versions")" >> "$GITHUB_OUTPUT"
+        echo "tmp=$PWD/tmp" >> "$GITHUB_OUTPUT"
         echo "Lightning checkout: $dir"
       env:
         LIGHTNING: ${{ inputs.lightning }}
@@ -75,14 +76,14 @@ runs:
 
     - uses: erlef/setup-beam@v1
       with:
-        version-file: ${{ steps.lightning.outputs.dir }}/.tool-versions
+        version-file: ${{ steps.lightning.outputs.tool-versions }}
         version-type: strict
 
     # Node runs Lightning's assets and the worker under test — again from the
     # checkout's pin.
     - uses: actions/setup-node@v4
       with:
-        node-version-file: ${{ steps.lightning.outputs.dir }}/.tool-versions
+        node-version-file: ${{ steps.lightning.outputs.tool-versions }}
 
     - uses: pnpm/action-setup@v4
       with:
@@ -109,9 +110,9 @@ runs:
       with:
         name: ${{ inputs.artifact-name }}
         path: |
-          ${{ github.action_path }}/tmp/lightning.log
-          ${{ github.action_path }}/tmp/worker.log
-          ${{ github.action_path }}/tmp/prep.log
+          ${{ steps.lightning.outputs.tmp }}/lightning.log
+          ${{ steps.lightning.outputs.tmp }}/worker.log
+          ${{ steps.lightning.outputs.tmp }}/prep.log
         if-no-files-found: ignore
 
     - name: Stop the stack
