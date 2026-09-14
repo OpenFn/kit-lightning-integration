@@ -39,12 +39,12 @@ projects:
             enabled: true
 
       # produce-large's output exceeds the worker's payload limit (10MB
-      # default). The redaction happens at the worker-thread boundary, before
-      # the event reaches Lightning or the next job: `data` is replaced with
-      # the literal string '[REDACTED]' in the one state object both see.
-      # check-size runs anyway (the run doesn't fail over this) but receives
-      # that placeholder, not the real value.
-      - name: Oversized Step Output
+      # default): its dataclip is withheld from the `step:complete` event
+      # Lightning sees. No downstream job, so the withheld output *is* the
+      # run's leaf and becomes the sync reply's final state directly — the
+      # one place this harness can see, from Lightning's own response, that
+      # Lightning received the redacted placeholder rather than the real value.
+      - name: Oversized Leaf
         triggers:
           webhook:
             type: webhook
@@ -56,19 +56,9 @@ projects:
             adaptor: "@openfn/language-common@latest"
             body: |
               fn(state => ({ ...state, data: { blob: 'x'.repeat(11 * 1024 * 1024) } }));
-          check-size:
-            name: Check Size
-            adaptor: "@openfn/language-common@latest"
-            body: |
-              fn(state => ({ ...state, data: { sawRedactedPlaceholder: state.data === '[REDACTED]' } }));
         edges:
           webhook->produce-large:
             source_trigger: webhook
             target_job: produce-large
-            condition_type: always
-            enabled: true
-          produce-large->check-size:
-            source_job: produce-large
-            target_job: check-size
             condition_type: always
             enabled: true
