@@ -16,7 +16,8 @@ import { useScenario } from '../../src/testing.js';
  *   body    {data, meta} — `data` is the run's final state on success, a fixed
  *           "no state on error" message on failure, or the job's own body
  *   204/304 empty body
- *   timeout 504 {error: "timeout", message, work_order_id}
+ *   timeout 504 {error: "timeout", message, work_order_id}, or the problem
+ *           document {type, status, title, code: "timeout", detail, work_order_id}
  */
 
 /** The `{data, meta}` envelope Lightning puts around every completed sync reply. */
@@ -167,12 +168,10 @@ describe('sync webhook round-trip', () => {
     it('replies 504 with the work order id, and the run still completes', async () => {
       const run = await lightning.workflow('Sync Slow').trigger({ sleep_ms: 35_000 });
 
+      const body = run.response.body as { code?: string; error?: string; work_order_id: string };
       expect(run.response.status).toBe(504);
-      expect(run.response.body).toMatchObject({
-        error: 'timeout',
-        message: expect.stringContaining('did not complete within timeout'),
-        work_order_id: run.id,
-      });
+      expect(body.work_order_id).toBe(run.id);
+      expect(body.code ?? body.error).toBe('timeout');
       expect(run.state).toBe('success');
     }, 120_000);
   });
