@@ -1,0 +1,44 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+
+concurrency: ${{ github.workflow }}-${{ github.ref }}
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # changeset git-tag needs the existing tags to know what's already released
+          fetch-depth: 0
+
+      - uses: oven-sh/setup-bun@v2
+
+      - run: bun install --frozen-lockfile
+
+      # With changesets pending on main: opens/updates the "Version Packages" PR.
+      # Without (i.e. that PR was just merged): runs the publish script, which
+      # tags vX.Y.Z — the action then pushes the tag and creates a GitHub release.
+      - name: Version PR or tag release
+        id: changesets
+        uses: changesets/action@v2
+        with:
+          publish-script: bunx changeset git-tag
+
+      # Callers pin the composite action to the floating major tag (@v1), so
+      # point it at the release that was just tagged. A major bump computes a
+      # new tag (v2) and leaves the old one where it was.
+      - name: Move the floating major tag
+        if: steps.changesets.outputs.published == 'true'
+        run: |
+          VERSION=$(jq -r .version package.json)
+          MAJOR="v${VERSION%%.*}"
+          git tag -f "$MAJOR" "v${VERSION}^{}"
+          git push -f origin "$MAJOR"
