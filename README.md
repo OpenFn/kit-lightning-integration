@@ -44,14 +44,14 @@ bun down
 
 ## Prerequisites
 
-| Tool              | Why                                                                                                                                                                 |
-| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **bun**           | Runs the harness.                                                                                                                                                   |
-| **node**          | Lightning's assets and the worker under test run on node, as they do in production.                                                                                 |
-| **Elixir/Erlang** | Must match Lightning's `.tool-versions` (asdf picks it up automatically inside the checkout).                                                                       |
+| Tool              | Why                                                                                                                                                                         |
+| ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **bun**           | Runs the harness.                                                                                                                                                           |
+| **node**          | Lightning's assets and the worker under test run on node, as they do in production.                                                                                         |
+| **Elixir/Erlang** | Must match Lightning's `.tool-versions` (asdf picks it up automatically inside the checkout).                                                                               |
 | **Postgres**      | On localhost. The harness uses its own database (`lightning_integration_e2e` by default, dropped on `down`) — it never touches your dev data. Override with `DATABASE_URL`. |
-| **pnpm**          | Only if building the worker from a kit checkout (not needed for published `@openfn/ws-worker` versions).                                                            |
-| **Rust**          | Apple Silicon only, to build Lightning's `rambo` dep from source — the same requirement Lightning's own `bin/bootstrap` enforces.                                   |
+| **pnpm**          | Only if building the worker from a kit checkout (not needed for published `@openfn/ws-worker` versions).                                                                    |
+| **Rust**          | Apple Silicon only, to build Lightning's `rambo` dep from source — the same requirement Lightning's own `bin/bootstrap` enforces.                                           |
 
 Before touching a checkout, `up` checks that the host's Erlang and Elixir match
 the checkout's `.tool-versions` and fails with an install hint if not — rather
@@ -72,12 +72,12 @@ major-version skew works fine).
 `--worker` (or `WORKER`) takes the same checkout specs against `OpenFn/kit`,
 plus published versions:
 
-| Spec                       | Meaning                                          |
-| -------------------------- | ------------------------------------------------ |
-| `latest`, `1.14.1`, `next` | published `@openfn/ws-worker` via npx (default)  |
-| `main` / full SHA          | branch/SHA on `OpenFn/kit`, built with pnpm      |
-| `owner/repo#ref`           | branch/tag/SHA on a fork                         |
-| `../kit`                   | a local checkout (built only if `dist` missing)  |
+| Spec                       | Meaning                                         |
+| -------------------------- | ----------------------------------------------- |
+| `latest`, `1.14.1`, `next` | published `@openfn/ws-worker` via npx (default) |
+| `main` / full SHA          | branch/SHA on `OpenFn/kit`, built with pnpm     |
+| `owner/repo#ref`           | branch/tag/SHA on a fork                        |
+| `../kit`                   | a local checkout (built only if `dist` missing) |
 
 Omitted, they default to `main` and the published `latest`.
 
@@ -232,39 +232,44 @@ unannounced.
 
 ## Release process
 
-Consumers pin the composite action by tag, so a release is two tags: an
-immutable semver tag that marks the exact release, and the floating `v1` major
-tag that callers of `OpenFn/kit-lightning-integration@v1` actually follow.
+Releases are driven by [changesets](https://github.com/changesets/changesets).
+Nobody tags by hand — the [Release workflow](.github/workflows/release.yml)
+does it when a release PR merges into `main`.
 
-1. **Make sure `main` is green.** Run the suite locally or dispatch
-   [`test-lightning-branch.yml`](.github/workflows/test-lightning-branch.yml)
-   against `main` — the action ships straight from this repo's source, so
-   whatever is on `main` is what callers get.
-
-2. **Cut an annotated semver tag** on the release commit:
+1. **Add a changeset to your PR.** If your change should ship to callers of
+   the action, run:
 
    ```bash
-   git tag -a v1.0.3 -m "describe the change"
-   git push origin v1.0.3
+   bunx changeset
    ```
 
-   Patch bump for fixes and internal changes, minor bump for new
-   capability, major bump for anything that breaks callers of the action
-   (renamed inputs, new required setup, changed defaults).
+   and commit the generated `.changeset/*.md` file: it records the bump level
+   and the changelog line. Patch for fixes and internal changes, minor for new
+   capability, major for anything that breaks callers of the action (renamed
+   inputs, new required setup, changed defaults).
 
-3. **Move the floating `v1` tag** to the same commit, so existing callers pick
-   up the release on their next run:
+   The [Changeset check](.github/workflows/changeset-check.yml) fails any PR
+   that changes files without adding a changeset. For changes that shouldn't
+   ship a release (docs, CI tweaks), either add the `no-changeset` label to
+   the PR or commit an empty changeset (`bunx changeset --empty`).
 
-   ```bash
-   git tag -f v1 v1.0.3
-   git push -f origin v1
-   ```
+2. **Merge to `main`.** The Release workflow collects pending changesets into
+   a **Version Packages** PR (branch `changeset-release/main`) that bumps
+   `package.json` and writes `CHANGELOG.md`. It stays open and keeps absorbing
+   changesets until you're ready to release.
 
-   For a **major** release, don't move `v1` — create a new `v2` floating tag
-   and let callers opt in by updating their workflow.
+3. **Merge the Version Packages PR.** That merge is the release: the workflow
+   tags `vX.Y.Z`, creates the GitHub release with the changelog notes, and
+   moves the floating major tag (`v1`) that action callers pin — so
+   `OpenFn/kit-lightning-integration@v1` picks the release up on its next run.
+   A major bump gets a fresh floating tag (`v2`) instead, and callers opt in
+   by updating their workflow.
 
-That's the whole release: there is no npm publish and no build artifact — the
-action and the harness run from source at the tagged commit.
+There is no npm publish and no build artifact — the action and the harness run
+from source at the tagged commit, so make sure `main` is green (run the suite
+locally or dispatch
+[`test-lightning-branch.yml`](.github/workflows/test-lightning-branch.yml))
+before merging a release.
 
 ## Repository layout
 

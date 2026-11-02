@@ -1,0 +1,28 @@
+name: Changeset check
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, labeled, unlabeled]
+    branches: [main]
+
+jobs:
+  changeset:
+    runs-on: ubuntu-latest
+    # The Version Packages PR consumes changesets rather than adding one, and
+    # the no-changeset label is the escape hatch for PRs that shouldn't ship a
+    # release (a skipped job still satisfies a required status check).
+    if: >-
+      github.head_ref != 'changeset-release/main' &&
+      !contains(github.event.pull_request.labels.*.name, 'no-changeset')
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # changeset status diffs the PR against main, so it needs history
+          fetch-depth: 0
+
+      - uses: oven-sh/setup-bun@v2
+
+      - run: bun install --frozen-lockfile
+
+      # Fails when files changed since main but no changeset was added.
+      - run: bunx changeset status --since origin/main
