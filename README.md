@@ -1,7 +1,28 @@
 # lightning-worker-contract-tests
 
-Run real end-to-end tests between Lightning and the worker, with either side
-built from any branch.
+Real end-to-end contract tests for the boundary between
+[`OpenFn/lightning`](https://github.com/OpenFn/lightning) and
+[`OpenFn/kit`](https://github.com/OpenFn/kit) — with either side built from any
+branch, tag, commit, fork, or local checkout.
+
+The real coupling between the two repos is the WebSocket protocol
+`@openfn/ws-worker` speaks to Lightning's `/worker` channel. Historically each
+repo tested that boundary against a fake of the other, so a breaking change on
+either side shipped green and exploded in integration
+([lightning#4784](https://github.com/OpenFn/lightning/issues/4784)). This
+harness boots the real pair and drives it as a black-box integrator: webhooks
+in, run results out.
+
+- [Quickstart](#quickstart)
+- [Prerequisites](#prerequisites)
+- [Choosing what to test](#choosing-what-to-test)
+- [Running the tests](#running-the-tests)
+- [Writing tests](#writing-tests)
+- [Test data: scenarios](#test-data-scenarios)
+- [Under the hood](#under-the-hood)
+- [Running in CI](#running-in-ci)
+- [Release process](#release-process)
+- [Repository layout](#repository-layout)
 
 ## Quickstart
 
@@ -10,52 +31,53 @@ bun install
 bun run up --lightning ../lightning --worker latest
 ```
 
-That boots a real Lightning at <http://localhost:4003> from whatever source
-you pointed at, and attaches a real `@openfn/ws-worker` to its `/worker`
-channel (the worker's monitor lands on <http://localhost:2222>). When you're
-done:
+That boots a real Lightning at <http://localhost:4003> from whatever source you
+pointed at, and attaches a real `@openfn/ws-worker` to its `/worker` channel
+(the worker's monitor lands on <http://localhost:2222>). When you're done:
 
 ```bash
 bun down
 ```
 
-(`bun up` is taken by bun itself — an alias of `bun update` — hence
-`bun run up`. `bun run stack up|down` also works.)
+> `bun up` is taken by bun itself — an alias of `bun update` — hence
+> `bun run up`. `bun run stack up|down` also works.
 
-### What you need installed
+## Prerequisites
 
-- **bun** — runs the harness. **node** too: Lightning's assets and the worker
-  under test run on node, as they do in production.
-- **Elixir/Erlang** matching Lightning's `.tool-versions` (asdf picks it up
-  automatically inside the checkout).
-- **pnpm**, only if building the worker from a kit checkout (not needed for
-  published `@openfn/ws-worker` versions).
-- **Postgres** on localhost. The harness uses its own database
-  (`lightning_integration_e2e` by default, dropped on `down`) — it will never
-  touch your dev data. Point `DATABASE_URL` elsewhere to override.
-- On Apple Silicon: **Rust**, to build Lightning's `rambo` dep from source —
-  the same requirement Lightning's own `bin/bootstrap` enforces.
+| Tool              | Why                                                                                                                                                                 |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **bun**           | Runs the harness.                                                                                                                                                   |
+| **node**          | Lightning's assets and the worker under test run on node, as they do in production.                                                                                 |
+| **Elixir/Erlang** | Must match Lightning's `.tool-versions` (asdf picks it up automatically inside the checkout).                                                                       |
+| **Postgres**      | On localhost. The harness uses its own database (`lightning_integration_e2e` by default, dropped on `down`) — it never touches your dev data. Override with `DATABASE_URL`. |
+| **pnpm**          | Only if building the worker from a kit checkout (not needed for published `@openfn/ws-worker` versions).                                                            |
+| **Rust**          | Apple Silicon only, to build Lightning's `rambo` dep from source — the same requirement Lightning's own `bin/bootstrap` enforces.                                   |
+
+Before touching a checkout, `up` checks that the host's Erlang and Elixir match
+the checkout's `.tool-versions` and fails with an install hint if not — rather
+than three steps later with `mix` exiting 126. Node is only advisory (a
+major-version skew works fine).
 
 ## Choosing what to test
 
 `--lightning` (or the `LIGHTNING` env var) takes:
 
-| Spec                      | Meaning                                        |
-| ------------------------- | ---------------------------------------------- |
-| `main`                    | branch, tag, or SHA on `OpenFn/lightning`      |
-| a full 40-char SHA        | any commit (git can't fetch abbreviated SHAs)  |
-| `owner/repo#ref`          | branch/tag/SHA on a fork                       |
-| `../lightning`            | a local checkout, used as-is                   |
+| Spec               | Meaning                                       |
+| ------------------ | --------------------------------------------- |
+| `main`             | branch, tag, or SHA on `OpenFn/lightning`     |
+| a full 40-char SHA | any commit (git can't fetch abbreviated SHAs) |
+| `owner/repo#ref`   | branch/tag/SHA on a fork                      |
+| `../lightning`     | a local checkout, used as-is                  |
 
 `--worker` (or `WORKER`) takes the same checkout specs against `OpenFn/kit`,
 plus published versions:
 
-| Spec                      | Meaning                                        |
-| ------------------------- | ---------------------------------------------- |
-| `latest`, `1.14.1`, `next`| published `@openfn/ws-worker` via npx (default)|
-| `main` / full SHA         | branch/SHA on `OpenFn/kit`, built with pnpm    |
-| `owner/repo#ref`          | branch/tag/SHA on a fork                       |
-| `../kit`                  | a local checkout (built only if `dist` missing)|
+| Spec                       | Meaning                                          |
+| -------------------------- | ------------------------------------------------ |
+| `latest`, `1.14.1`, `next` | published `@openfn/ws-worker` via npx (default)  |
+| `main` / full SHA          | branch/SHA on `OpenFn/kit`, built with pnpm      |
+| `owner/repo#ref`           | branch/tag/SHA on a fork                         |
+| `../kit`                   | a local checkout (built only if `dist` missing)  |
 
 Omitted, they default to `main` and the published `latest`.
 
@@ -63,87 +85,21 @@ Remote refs are cloned into `.cache/lightning/` and `.cache/kit/` and reused;
 local checkouts are used in place. The first boot of a fresh clone compiles
 everything (a few minutes) — after that it's fast.
 
-Under the hood, `up` runs the same steps a Lightning dev would: the
-`bin/bootstrap` prep sequence (deps, assets, runtime, db create + migrate),
-then `mix phx.server`, then the worker — waiting for `/health_check` and
-`/livez`. Both sides share the dev-mode `WORKER_SECRET`, pinned by the harness
-so a checkout's own `.env` can't desync them. Logs stream to
-`tmp/lightning.log` / `tmp/worker.log`; `down` stops both and drops the
-harness database. The prep steps (`deps.get`, asset/runtime install, db
-create) write to `tmp/prep.log` instead of the console — silent when they
-succeed, printed in full the moment one fails.
-
 ## Running the tests
 
 ```bash
-bun run test                                    # boots the stack, runs the suite, stops it
+bun run test                                        # boots the stack, runs the suite, stops it
 LIGHTNING=../lightning WORKER=../kit bun run test   # ...against local checkouts
-KEEP_STACK=1 bun run test                       # leave the stack running afterwards
+KEEP_STACK=1 bun run test                           # leave the stack running afterwards
 ```
-
-> **Today the suite needs a Lightning that has Kickstart**, which `main`
-> doesn't yet — until
-> [lightning#5026](https://github.com/OpenFn/lightning/pull/5026) merges, point
-> it at that branch: `LIGHTNING=bootstrap-from-config bun run test`.
 
 > `bun run test` runs the vitest suite — a bare `bun test` would invoke bun's
 > own test runner instead.
 
-Before touching the checkout, `up` checks that the host's Erlang and Elixir
-match the checkout's `.tool-versions` and fails with an install hint if not —
-rather than three steps later with `mix` exiting 126. Node is only advisory
-(a major-version skew works fine).
-
-The harness also sets Lightning's `WORKER_MAX_RUN_DURATION_SECONDS` to **60**
+The harness sets Lightning's `WORKER_MAX_RUN_DURATION_SECONDS` to **60**
 (Lightning's own default is 300), so tests that need a run to hit its timeout
 don't take five minutes. Override with `HARNESS_RUN_TIMEOUT_SECONDS`; keep it
 above the longest legitimately-slow job in the suites.
-
-## Running in CI
-
-[`test-lightning-branch.yml`](.github/workflows/test-lightning-branch.yml) is a
-`workflow_dispatch` that does the same thing on a GitHub runner: check out the
-chosen Lightning ref, install the Erlang/Elixir/node **it** pins (read from its
-`.tool-versions` — nothing is hardcoded in the workflow), boot the pair, run the
-suite. Run it from the Actions tab or:
-
-```bash
-gh workflow run test-lightning-branch.yml -f lightning_ref=main -f worker=latest
-```
-
-Failures land on the run's summary page (the failing run's log tail, or the
-toolchain mismatch), and `tmp/*.log` are uploaded as an artifact. Nothing is
-cached yet, so a run compiles Lightning from scratch.
-
-### Using it from another repo
-
-The workflow above is a thin wrapper around [`action.yml`](action.yml), a
-composite action any repo can call. Lightning and kit use it to run the suite
-against the exact commit their CI has checked out, so a breaking change shows
-up on the PR that introduced it:
-
-```yaml
-jobs:
-  contract:
-    runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:17
-        env: { POSTGRES_USER: postgres, POSTGRES_PASSWORD: postgres }
-        ports: ['5432:5432']
-        options: --health-cmd "pg_isready -U postgres" --health-interval 5s --health-retries 20
-    steps:
-      - uses: actions/checkout@v4
-      - uses: OpenFn/kit-lightning-integration@v1
-        with:
-          lightning: ${{ github.workspace }}   # in Lightning's CI; kit passes `worker:` instead
-```
-
-`lightning` and `worker` take the same specs as the CLI (a checkout path, a
-ref, `owner/repo#ref`, or a published version for the worker). The caller
-provides Postgres — an action can't declare services — and runs on Linux.
-Pin a tag (`@v1`), not `@main`, so a harness change can't break your CI
-unannounced.
 
 ## Writing tests
 
@@ -181,13 +137,13 @@ expected work order to succeed, got "failed"
 ```
 
 Need more than pass/fail? `await run.logs()` returns the lines, and
-`lightning.client` is the raw HTTP client. Note that a job's *output data*
+`lightning.client` is the raw HTTP client. Note that a job's _output data_
 isn't reachable this way — Lightning only exposes dataclips to a logged-in
-browser session — so assert on what the job logs — or, for a trigger with
+browser session — so assert on what the job logs, or, for a trigger with
 `webhook_reply: after_completion`, on `run.response`: the HTTP status and body
 Lightning sent back once the run finished.
 
-## Test data
+## Test data: scenarios
 
 `up` gives you an empty Lightning. Test data comes from **scenarios** — yaml
 files in [scenarios/](scenarios/) describing users, projects and workflows —
@@ -211,33 +167,117 @@ inspect it:
 bun run stack seed scenarios/webhook-passthrough.yaml
 ```
 
-Scenarios only work against a Lightning that has Kickstart (see the note
-above). The scenario file format is documented in Lightning's
+The scenario file format is documented in Lightning's
 `bin/e2e.d/scenarios/README.md`.
 
-## Why this repo exists
+## Under the hood
 
-The real coupling between [`OpenFn/lightning`](https://github.com/OpenFn/lightning)
-and [`OpenFn/kit`](https://github.com/OpenFn/kit) is the WebSocket protocol
-`@openfn/ws-worker` speaks to Lightning's `/worker` channel. Today each repo
-tests that boundary against a fake of the other, so a breaking change on
-either side ships green and explodes in integration
-([lightning#4784](https://github.com/OpenFn/lightning/issues/4784)). This
-harness runs the real pair and drives it as a black-box integrator: webhooks
-in, run results out.
+`up` runs the same steps a Lightning dev would: the `bin/bootstrap` prep
+sequence (deps, assets, runtime, db create + migrate), then `mix phx.server`,
+then the worker — waiting for `/health_check` and `/livez`.
 
-## Layout
+- Both sides share the dev-mode `WORKER_SECRET`, pinned by the harness so a
+  checkout's own `.env` can't desync them.
+- Logs stream to `tmp/lightning.log` / `tmp/worker.log`.
+- The prep steps (`deps.get`, asset/runtime install, db create) write to
+  `tmp/prep.log` instead of the console — silent when they succeed, printed in
+  full the moment one fails.
+- `down` stops both processes and drops the harness database.
+
+## Running in CI
+
+[`test-lightning-branch.yml`](.github/workflows/test-lightning-branch.yml) is a
+`workflow_dispatch` that does the same thing on a GitHub runner: check out the
+chosen Lightning ref, install the Erlang/Elixir/node **it** pins (read from its
+`.tool-versions` — nothing is hardcoded in the workflow), boot the pair, run
+the suite. Run it from the Actions tab or:
+
+```bash
+gh workflow run test-lightning-branch.yml -f lightning_ref=main -f worker=latest
+```
+
+Failures land on the run's summary page (the failing run's log tail, or the
+toolchain mismatch), and `tmp/*.log` are uploaded as an artifact. Nothing is
+cached yet, so a run compiles Lightning from scratch.
+
+### Using it from another repo
+
+The workflow above is a thin wrapper around [`action.yml`](action.yml), a
+composite action any repo can call. Lightning and kit use it to run the suite
+against the exact commit their CI has checked out, so a breaking change shows
+up on the PR that introduced it:
+
+```yaml
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env: { POSTGRES_USER: postgres, POSTGRES_PASSWORD: postgres }
+        ports: ['5432:5432']
+        options: --health-cmd "pg_isready -U postgres" --health-interval 5s --health-retries 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: OpenFn/kit-lightning-integration@v1
+        with:
+          lightning: ${{ github.workspace }} # in Lightning's CI; kit passes `worker:` instead
+```
+
+`lightning` and `worker` take the same specs as the CLI (a checkout path, a
+ref, `owner/repo#ref`, or a published version for the worker). The caller
+provides Postgres — an action can't declare services — and runs on Linux. Pin
+a tag (`@v1`), not `@main`, so a harness change can't break your CI
+unannounced.
+
+## Release process
+
+Consumers pin the composite action by tag, so a release is two tags: an
+immutable semver tag that marks the exact release, and the floating `v1` major
+tag that callers of `OpenFn/kit-lightning-integration@v1` actually follow.
+
+1. **Make sure `main` is green.** Run the suite locally or dispatch
+   [`test-lightning-branch.yml`](.github/workflows/test-lightning-branch.yml)
+   against `main` — the action ships straight from this repo's source, so
+   whatever is on `main` is what callers get.
+
+2. **Cut an annotated semver tag** on the release commit:
+
+   ```bash
+   git tag -a v1.0.3 -m "describe the change"
+   git push origin v1.0.3
+   ```
+
+   Patch bump for fixes and internal changes, minor bump for new
+   capability, major bump for anything that breaks callers of the action
+   (renamed inputs, new required setup, changed defaults).
+
+3. **Move the floating `v1` tag** to the same commit, so existing callers pick
+   up the release on their next run:
+
+   ```bash
+   git tag -f v1 v1.0.3
+   git push -f origin v1
+   ```
+
+   For a **major** release, don't move `v1` — create a new `v2` floating tag
+   and let callers opt in by updating their workflow.
+
+That's the whole release: there is no npm publish and no build artifact — the
+action and the harness run from source at the tagged commit.
+
+## Repository layout
 
 ```
-src/cli.ts              `bun run up|down|stack seed`
-src/source.ts           --lightning/--worker specs → checkout or npm version
-src/stack.ts            native boot: Lightning (mix phx.server) + worker, stop
-src/scenario.ts         seedScenario(): kickstart a scenario, return its manifest
-src/testing.ts          useScenario() + the workflow/run API tests are written against
-src/manifest.ts         types + helpers for reading a manifest
+src/cli.ts                `bun run up|down|stack seed`
+src/source.ts             --lightning/--worker specs → checkout or npm version
+src/stack.ts              native boot: Lightning (mix phx.server) + worker, stop
+src/scenario.ts           seedScenario(): kickstart a scenario, return its manifest
+src/testing.ts            useScenario() + the workflow/run API tests are written against
+src/manifest.ts           types + helpers for reading a manifest
 src/clients/lightning.ts  typed TS wrapper around a running Lightning
-src/globalSetup.ts      vitest wiring: up before the suite, down after
-scenarios/*.yaml        declarative kickstart scenarios
-tests/matchers.ts       toSucceed() / toFailRun(), with log-reporting failures
+src/globalSetup.ts        vitest wiring: up before the suite, down after
+scenarios/*.yaml          declarative kickstart scenarios
+tests/matchers.ts         toSucceed() / toFailRun(), with log-reporting failures
 tests/<boundary>/*.spec.ts  the e2e suites, one dir per component pair (see tests/README.md)
 ```
