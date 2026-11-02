@@ -246,8 +246,12 @@ does it when a release PR merges into `main`.
    and commit the generated `.changeset/*.md` file: it records the bump level
    and the changelog line. Patch for fixes and internal changes, minor for new
    capability, major for anything that breaks callers of the action (renamed
-   inputs, new required setup, changed defaults). Pure docs/CI tweaks don't
-   need one.
+   inputs, new required setup, changed defaults).
+
+   The [Changeset check](.github/workflows/changeset-check.yml) fails any PR
+   that changes files without adding a changeset. For changes that shouldn't
+   ship a release (docs, CI tweaks), either add the `no-changeset` label to
+   the PR or commit an empty changeset (`bunx changeset --empty`).
 
 2. **Merge to `main`.** The Release workflow collects pending changesets into
    a **Version Packages** PR (branch `changeset-release/main`) that bumps
